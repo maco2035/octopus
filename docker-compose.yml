@@ -1,0 +1,19 @@
+services:
+  octopus:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      OCTOPUS_CONFIG: /app/config.yaml
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - octopus-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  octopus-data:

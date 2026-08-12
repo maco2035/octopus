@@ -1,0 +1,19 @@
+# config.example.yaml — the central server. Copy to config.yaml for local
+# use, or mount it in Docker; ${VAR} references are expanded from the
+# process environment.
+port: 8080
+agents:
+  gemini_api_key: ${GEMINI_API_KEY}
+  anthropic_api_key: ${ANTHROPIC_API_KEY}
+  openai_api_key: ${OPENAI_API_KEY}
+slack:
+  bot_token: ${SLACK_BOT_TOKEN}
+  signing_secret: ${SLACK_SIGNING_SECRET}
+store:
+  driver: sqlite
+  dsn: ./data/octopus.db
+git:
+  branch_pattern: "octopus/{ticket_id}"
+web:
+  enabled: true
+  # no auth config in v1 — see PLAN.md Phase 8 hardening note

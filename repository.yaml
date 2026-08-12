@@ -1,0 +1,7 @@
+# Lets this repo be added directly in Home Assistant as a custom add-on
+# repository (Settings > Add-ons > Add-on Store > ⋮ > Repositories). HA
+# auto-discovers any folder containing a config.yaml as one add-on — here
+# that's ha-addon/.
+name: "Octopus Add-ons"
+url: "https://github.com/YOUR_GITHUB_USER/octopus"
+maintainer: "you"

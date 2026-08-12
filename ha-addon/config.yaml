@@ -1,0 +1,32 @@
+name: "Octopus"
+version: "0.1.0"
+slug: "octopus"
+description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
+url: "https://github.com/YOUR_GITHUB_USER/octopus"
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:octopus
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: "Octopus web UI and API (also reachable via Ingress)"
+options:
+  gemini_api_key: ""
+  anthropic_api_key: ""
+  openai_api_key: ""
+  slack_bot_token: ""
+  slack_signing_secret: ""
+  branch_pattern: "octopus/{ticket_id}"
+schema:
+  gemini_api_key: str
+  anthropic_api_key: str
+  openai_api_key: str
+  slack_bot_token: str
+  slack_signing_secret: str
+  branch_pattern: str
