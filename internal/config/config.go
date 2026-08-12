@@ -14,12 +14,24 @@ type Config struct {
 	Store  StoreConfig  `yaml:"store"`
 	Git    GitConfig    `yaml:"git"`
 	Web    WebConfig    `yaml:"web"`
+	Auth   AuthConfig   `yaml:"auth"`
 }
 
 type AgentsConfig struct {
 	GeminiAPIKey    string `yaml:"gemini_api_key"`
 	AnthropicAPIKey string `yaml:"anthropic_api_key"`
 	OpenAIAPIKey    string `yaml:"openai_api_key"`
+	XAIAPIKey       string `yaml:"xai_api_key"` // Grok
+}
+
+// AuthConfig holds the single v1 admin account (PLAN.md Key Design Decision
+// 23). AdminPasswordHash is a bcrypt hash, generated with
+// `octopus hash-password` — never a plaintext password. Not yet enforced
+// by validate(): the login system that reads these lands in Phase 2/4, and
+// requiring them here would break booting the bare Phase 0/1 skeleton.
+type AuthConfig struct {
+	AdminUsername     string `yaml:"admin_username"`
+	AdminPasswordHash string `yaml:"admin_password_hash"`
 }
 
 type SlackConfig struct {

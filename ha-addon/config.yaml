@@ -2,7 +2,7 @@ name: "Octopus"
 version: "0.1.0"
 slug: "octopus"
 description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
-url: "https://github.com/YOUR_GITHUB_USER/octopus"
+url: "https://github.com/maco2035/octopus"
 arch:
   - amd64
   - aarch64
@@ -20,13 +20,19 @@ options:
   gemini_api_key: ""
   anthropic_api_key: ""
   openai_api_key: ""
+  xai_api_key: ""
   slack_bot_token: ""
   slack_signing_secret: ""
   branch_pattern: "octopus/{ticket_id}"
+  admin_username: "admin"
+  admin_password_hash: ""
 schema:
   gemini_api_key: str
   anthropic_api_key: str
   openai_api_key: str
+  xai_api_key: str
   slack_bot_token: str
   slack_signing_secret: str
   branch_pattern: str
+  admin_username: str
+  admin_password_hash: str

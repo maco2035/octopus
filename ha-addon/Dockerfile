@@ -8,7 +8,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -o /out/octopus ./cmd/octopus
+COPY VERSION ./VERSION
+RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=$(cat VERSION)" -o /out/octopus ./cmd/octopus
 
 FROM ${BUILD_FROM}
 RUN apk add --no-cache git

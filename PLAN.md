@@ -1,6 +1,7 @@
 # Octopus — Multi-Agent Orchestration Server
 
 **Status:** Planning
+**Version:** 0.1.0 (semver — see §9. Nothing gets tagged 1.0.0 until the phases that matter for a real release are actually done.)
 **Language:** Go (central server + `octopus-runner` agent binary) + server-rendered HTML/htmx + vanilla JS (web UI, no frontend build step)
 **Purpose:** A control plane that runs multi-model AI agent pipelines (e.g. Gemini for drafting, Claude for review, Codex for reporting) against real tickets across multiple projects, dispatches Git workflows to whichever dev machine is available, and gates progress behind human review via Slack/Discord or the web UI.
 
@@ -24,17 +25,35 @@ This doc is meant to live at the root of a fresh repo as `PLAN.md` and be handed
 - Survive a process restart at any point mid-pipeline, including mid-parallel-fanout and mid-review-pause — state must be durable, not goroutine-local.
 - Make it hard to accidentally merge unreviewed code or let an unauthenticated request/runner trigger work.
 - Keep agents pluggable via a registry: adding a new agent type means writing one file and registering it — the web UI then lists it as a draggable node automatically, no further app code changes.
-- Data model leaves room for **more than one person** using Octopus eventually (e.g. an `owner` field on projects/runs), without building real auth/multi-tenancy now.
+- Data model leaves room for **more than one person** using Octopus eventually (e.g. an `owner` field on projects/runs), without building full multi-tenancy now.
+- **The web UI requires a real login.** Because the central server is meant to be reachable from wherever you are (a laptop at a cafe, not just your home network), "no auth, rely on the network boundary" is no longer good enough on its own. Session-based login with a hashed password is a v1 requirement, not deferred hardening.
+- **Releases follow semver, starting at 0.1.0.** See §9.
 
 **Non-goals (for v1)**
-- No full multi-tenant / cross-org isolation — single team, single Slack workspace, shared database. Schema is forward-compatible with multiple people, but there's no login system or access control yet.
-- No distributed consensus / leaderless coordination between machines. There is exactly one central brain (the server); runners are dumb, replaceable, stateless workers. If you want "no single machine matters," that's solved by hosting the server somewhere reliable (small VM, NAS, always-on box) — not by making every machine a peer.
-- No public exposure of the web UI without a network boundary (VPN/localhost/reverse-proxy auth) — that's called out explicitly in hardening, not solved by the app itself in v1.
+- No full multi-tenant / cross-org isolation, no self-serve signup — single team, single Slack workspace, shared database, a small fixed set of accounts. Schema is forward-compatible with multiple people (`Project.Owner`), but there's no per-project access control yet — anyone logged in can see/do everything.
+- No distributed consensus / leaderless coordination between machines. There is exactly one central brain (the server); runners are dumb, replaceable, stateless workers. If you want "no single machine matters," that's solved by hosting the server somewhere reliable (in your case, the always-on Home Assistant box) — not by making every machine a peer.
+- **Octopus does not terminate TLS itself.** Login only happens over HTTPS, but Octopus expects whatever's in front of it to provide that — HA Ingress (+ Nabu Casa/HA Cloud remote access, or your own reverse proxy) when running as the add-on, or your own reverse proxy/tunnel for the generic Docker image. Serving a login form over plain HTTP on the public internet is not an acceptable v1 configuration.
 - Discord / ServiceNow gateways remain optional, deferred to the end.
 
 ---
 
-## 2. Key Design Decisions (changes from the first draft)
+## 2. Deployment Topology (a concrete example, not just theory)
+
+This is one real, supported layout — worth writing down explicitly since it's easy to get turned around on which piece runs where:
+
+| Machine | Role | Runs | Configured with |
+|---|---|---|---|
+| Home Assistant server (remote, always-on) | **Central brain** | `octopus` server: scheduler, DAG engine, SQLite store, web UI, Slack gateway — packaged as the `ha-addon/` add-on | All AI provider API keys (Gemini/Claude/OpenAI/xAI), Slack credentials, the admin login, `branch_pattern` — all via the add-on's Configuration tab |
+| Dev machine (this one) | **Runner** | `octopus-runner` only | A runner token (minted from the web UI) + normal local git/GitHub credentials (SSH key or PAT) for push access. **No AI provider keys.** |
+| Laptop at a cafe | **Client** | Nothing — just a browser | Nothing to configure; logs into the web UI over HTTPS like any other web app |
+
+The rule of thumb: if it's an AI provider key, it goes on the central brain. If it's a git/GitHub credential, it goes on whichever machine is acting as a runner. A pure client machine (the cafe laptop) never has any Octopus config on it at all — it's not running any Octopus process, just a browser tab.
+
+You can run more than one runner (e.g. this dev machine today, another machine later) — each gets its own runner token and can serve the same or different projects (Key Design Decision 14).
+
+---
+
+## 3. Key Design Decisions (changes from the first draft)
 
 These are fixes/extensions to the original sketch, decided up front so Claude Code doesn't have to re-derive them mid-build:
 
@@ -59,10 +78,13 @@ These are fixes/extensions to the original sketch, decided up front so Claude Co
 19. **The server persists outstanding dispatched jobs too, not just the runner.** A `GitJob` the server has sent but hasn't gotten a `GitJobResult` for yet is saved via `SaveGitJob` before dispatch. If the server itself restarts while a job is in flight (runner offline, job mid-retry, whatever), `runnerhub` reloads pending jobs via `LoadPendingGitJobs` on boot and keeps waiting for their results — a late-arriving `GitJobResult` is matched by `GitJob.ID` and applied correctly even if the server restarted in between. Checkpointing covers completed nodes; this covers nodes that are dispatched but not yet resolved.
 20. **Every git job fetches before acting and pushes after mutating — handoff between machines always goes through GitHub, never through assuming one runner stays assigned to a run.** `prepare_branch` pushes the new (even empty) branch immediately so it's visible on GitHub right away. This matters because the runner that handles a run's first job isn't guaranteed to be the one that handles its next job — if runner A creates a branch and goes offline, and runner B (also registered for that project) picks up the following job, B needs to be able to `git fetch` and see exactly what A already pushed.
 21. **A runner's local clone is scoped per `(project_id, run_id)`, not per project.** Two concurrent runs against the same project (two different tickets) landing on the same runner must not share one working directory — each run gets its own clone/worktree under `clone_cache_dir/<project_id>/<run_id>`, so simultaneous runs never clobber each other's checkout.
+22. **Session-based login gates the web UI.** `/login` checks a username against a bcrypt password hash and, on success, issues a signed, httpOnly, `Secure` session cookie; a server-side `Session` row (not just a signed cookie) makes logout and revocation real rather than "wait for expiry." Every web UI route requires a valid session. `/healthz`, `/api/slack/*` (their own signature verification), and the runner connect endpoint (its own token auth) are exempt by design — those are service-to-service traffic, not a human in a browser, and must keep working without a login session.
+23. **v1 ships with one configured admin account, not a signup flow.** `admin_username` and `admin_password_hash` are set via `config.yaml` / the HA add-on's Configuration tab (a small `octopus hash-password` CLI helper generates the hash so a plaintext password never sits in config or logs). This is deliberately the smallest thing that satisfies "real login" — a full `User` table with self-serve accounts can build on the same `Project.Owner` forward-compat field later without a redesign, once "more than one person" actually happens.
+24. **Grok (xAI) joins Gemini/Claude/OpenAI as a fourth supported agent provider.** Same treatment as the others: an API key in `agents.xai_api_key`, wired up behind the agent registry in Phase 6 — no special-casing.
 
 ---
 
-## 3. Directory Structure
+## 4. Directory Structure
 
 ```
 octopus/
@@ -146,7 +168,7 @@ Using `internal/` instead of `pkg/` — nothing here is meant to be imported by 
 
 ---
 
-## 4. Core Interfaces (decide these before writing agents)
+## 5. Core Interfaces (decide these before writing agents)
 
 ```go
 // domain/agent.go
@@ -238,6 +260,19 @@ type GitJobResult struct {
     Error   string
 }
 
+// domain/user.go
+type User struct {
+    ID           string
+    Username     string
+    PasswordHash string // bcrypt
+}
+
+type Session struct {
+    Token     string // the cookie value; random, not derived from anything guessable
+    UserID    string
+    ExpiresAt time.Time
+}
+
 // agents/registry.go
 type Registry interface {
     Register(agentType string, factory func(cfg map[string]any) (domain.Agent, error))
@@ -271,12 +306,18 @@ type Store interface {
     SaveGitJob(ctx context.Context, job *domain.GitJob) error               // called before dispatch, so it survives a server restart
     LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob, error)       // reloaded by runnerhub on boot
     ResolveGitJob(ctx context.Context, jobID string, result *domain.GitJobResult) error // idempotent by jobID
+
+    LoadUserByUsername(ctx context.Context, username string) (*domain.User, error)
+
+    SaveSession(ctx context.Context, s *domain.Session) error
+    LoadSession(ctx context.Context, token string) (*domain.Session, error)
+    DeleteSession(ctx context.Context, token string) error // logout
 }
 ```
 
 ---
 
-## 5. Phased Build Plan
+## 6. Phased Build Plan
 
 ### Phase 0 — Skeleton
 - `go mod init`, directory layout above, `main.go` boots an HTTP server on `:8080` with `/healthz` and one server-rendered "hello" page via `html/template` (proves the web-serving path works end to end before real UI is built).
@@ -291,23 +332,26 @@ type Store interface {
 - Unit test 2: mark B `RequiresReview`. Assert the engine halts after B (C and D do not run), then `Continue` with an edited output for B causes C to see the edited value.
 - **Done when:** DAG engine tests pass, including parallel-fanout and review-pause/edit/continue, zero network calls.
 
-### Phase 2 — Store: projects, pipeline defs, checkpointing, review state
+### Phase 2 — Store: projects, pipeline defs, checkpointing, review state, auth
 - SQLite (WAL mode). `Project` and `PipelineDef` CRUD.
 - Checkpoint records a set of completed node IDs per run (not a single pointer). `Resume(ctx, runID)` recomputes the DAG frontier from that set and re-runs only nodes not yet complete — including resuming correctly from an `AWAITING_REVIEW` state after a restart.
+- `User`/`Session` persistence: `LoadUserByUsername` reads the single admin account seeded from `config.yaml` at boot (username + bcrypt hash — never a plaintext password stored anywhere); `Session` rows back real login/logout in Phase 4.
 - Integration test: run the 4-node diamond, kill after B completes but before C finishes, resume, assert C runs (not re-run if it already finished), B does not re-run, D waits for both then runs.
-- **Done when:** a simulated crash mid-parallel-fanout, and a simulated crash while `AWAITING_REVIEW`, both resume correctly.
+- **Done when:** a simulated crash mid-parallel-fanout, and a simulated crash while `AWAITING_REVIEW`, both resume correctly, and a seeded admin user can be loaded by username.
 
 ### Phase 3 — Scheduler: concurrent runs across projects
 - `Scheduler` starts/tracks pipeline runs, each in its own goroutine, backed by the `Store`. `ListActiveRuns` powers a cross-project status view.
 - Integration test: trigger runs for two different projects back-to-back (with an artificial delay in `EchoAgent`), assert both make progress concurrently rather than one blocking the other.
 - **Done when:** two projects' pipelines run concurrently and both complete correctly.
 
-### Phase 4 — Web UI (htmx + vanilla JS drag-and-drop)
+### Phase 4 — Web UI (htmx + vanilla JS drag-and-drop), gated by login
+- **Login first, before any other page exists:** `/login` form, bcrypt check against the seeded admin user, session cookie issuance; a middleware in `internal/web/routes.go` wraps every other route and redirects to `/login` if there's no valid, unexpired `Session`. `/logout` deletes the session row. Build and test this before building the pages it protects.
 - Pages: project list/create, pipeline editor (the canvas), run status/log view (polls or uses htmx SSE/polling for live updates), and a **review-gate view**: shows the pending node's output in an editable form with Approve / Edit & Continue / Reject actions.
 - `/api/agent-types` lists registry contents for the drag-and-drop palette. A node's `RequiresReview` flag is a checkbox in the editor.
 - `canvas.js` (vendored SortableJS + hand-rolled edge-drawing) lets you place nodes, connect them into a DAG (including a parallel branch), and save — POSTs a `PipelineDef` JSON to `internal/web/api.go`, persisted through the `Store`.
 - A "Run" button on a project triggers the scheduler against that project's saved `PipelineDef`.
-- **Done when:** you can open the UI, build a 3-node pipeline with one parallel branch and one review gate by dragging, save it, hit Run, watch it pause at the review gate, edit the output, continue, and see it finish.
+- Unit test: an unauthenticated request to any UI page redirects to `/login`; a valid session reaches it; an expired/deleted session does not.
+- **Done when:** you can open the UI, log in, build a 3-node pipeline with one parallel branch and one review gate by dragging, save it, hit Run, watch it pause at the review gate, edit the output, continue, and see it finish — and confirm logging out actually revokes access, not just hides the UI client-side.
 
 ### Phase 5 — Slack gateway (verification from the start)
 - `slack_verify.go`: HMAC-SHA256 signature check, timestamp replay-window check (reject requests >5 min old).
@@ -340,7 +384,7 @@ type Store interface {
 ### Phase 8 — Hardening / polish
 - Structured logging (`slog`) with run ID and project ID on every line.
 - Rate limiting on `/api/slack/command` and the web UI's run-trigger endpoint (per-user/per-project).
-- **Explicit note:** the web UI has no auth in v1 — document that it must sit behind a VPN/localhost/reverse-proxy with its own auth before any shared/remote deployment. Runner tokens are the only access control on the git-execution path — treat them like credentials (rotate/revoke from the web UI if a machine is decommissioned). Running Octopus as the Home Assistant add-on (`ha-addon/`) and accessing it via HA **Ingress** satisfies this network-boundary requirement for free, since Ingress puts HA's own login in front of it — the raw `8080/tcp` port mapping still has none, so prefer Ingress when running that way.
+- **Explicit note:** the web UI has its own login (Phase 2/4) but still expects TLS in front of it — document that plain-HTTP exposure is never acceptable, and that running via HA **Ingress** (+ Nabu Casa/HA Cloud remote access) gets you both TLS and a second login (HA's own) for free; the raw `8080/tcp` port mapping bypasses Ingress entirely, so prefer Ingress when running that way. Runner tokens are a separate access control on the git-execution path from user login — treat them like credentials (rotate/revoke from the web UI if a machine is decommissioned). Rate limit `/login` specifically, not just the Slack/run-trigger endpoints, since it's now an internet-reachable password check.
 - Dockerfile + compose file finalized, no socket mount (the server doesn't need Docker at all now that git work happens on runners).
 - README with setup instructions, Slack app manifest, required scopes, and `octopus-runner` install/registration steps.
 - Revisit the `Project.Owner` field — still just a label in v1, but this is where real multi-person access control would hang later if needed.
@@ -350,7 +394,7 @@ type Store interface {
 
 ---
 
-## 6. Config Shape
+## 7. Config Shape
 
 ```yaml
 # config.example.yaml — the central server
@@ -359,6 +403,7 @@ agents:
   gemini_api_key: ${GEMINI_API_KEY}
   anthropic_api_key: ${ANTHROPIC_API_KEY}
   openai_api_key: ${OPENAI_API_KEY}
+  xai_api_key: ${XAI_API_KEY}       # Grok
 slack:
   bot_token: ${SLACK_BOT_TOKEN}
   signing_secret: ${SLACK_SIGNING_SECRET}
@@ -369,7 +414,9 @@ git:
   branch_pattern: "octopus/{ticket_id}"   # used for the implicit per-run branch
 web:
   enabled: true
-  # no auth config in v1 — see Phase 8 hardening note
+auth:
+  admin_username: ${OCTOPUS_ADMIN_USERNAME}
+  admin_password_hash: ${OCTOPUS_ADMIN_PASSWORD_HASH}   # bcrypt; generate with `octopus hash-password`, never store the plaintext
 ```
 
 ```yaml
@@ -385,7 +432,7 @@ Note: `git.repo_path` from the original draft is gone — repo location is runne
 
 ---
 
-## 7. Testing Strategy
+## 8. Testing Strategy
 - Unit tests for DAG leveling and parallel execution (fake agents, no network) — including the diamond-DAG concurrency assertion.
 - Unit tests for the review-gate pause/edit/continue path.
 - Unit tests for Slack signature verification (known-good and tampered payloads).
@@ -396,7 +443,16 @@ Note: `git.repo_path` from the original draft is gone — repo location is runne
 
 ---
 
-## 8. How to Hand This to Claude Code
+## 9. Versioning & Releases
+
+- **Semver from the start.** A `VERSION` file at the repo root is the single source of truth (currently `0.1.0`); `ha-addon/config.yaml`'s `version:` field and any Docker image tags must be bumped in lockstep with it — never let those drift apart.
+- **Nothing is tagged `1.0.0` until it's actually ready.** That's a real gate, not a formality: interpret "ready" as Phases 0–7 done (real agents, real git tools, multi-machine runners all working), auth in place, and at least one real ticket run end-to-end. Everything before that ships as `0.x.y`.
+- **What bumps what:** patch (`0.1.1`) for bug fixes with no behavior change; minor (`0.2.0`) for a new phase landing (a new capability, e.g. the web UI shipping); major stays at `0` until the 1.0.0 gate above is met, so breaking changes to config shape or the `Store` schema are still expected and fine pre-1.0.
+- **Tags are the release mechanism.** `git tag v0.1.0 && git push origin v0.1.0` marks a point in history as that version; nothing about this doc requires a tag to also mean "deployed to the Home Assistant server" — that's a separate, manual step (update the add-on, or pull the new image) until there's a reason to automate it.
+
+---
+
+## 10. How to Hand This to Claude Code
 
 Suggested first prompt once this file is in the repo root:
 
