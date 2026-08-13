@@ -30,7 +30,8 @@ go test ./... -race
 
 ## Status
 
-Phase 0 (skeleton) and Phase 1 (DAG engine, parallel execution, review-gate
-pause/resume) are implemented. Everything else in `PLAN.md` — persistence,
-the scheduler, the web UI, Slack, real agents, and the multi-machine runner
-protocol — is not built yet.
+Phase 0 (skeleton), Phase 1 (DAG engine, parallel execution, review-gate
+pause/resume), and Phase 2 (SQLite store, checkpoint/resume across a
+simulated crash, admin user seeding) are implemented. Everything else in
+`PLAN.md` — the scheduler, the web UI + login, Slack, real agents, and the
+multi-machine runner protocol — is not built yet.

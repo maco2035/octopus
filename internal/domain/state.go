@@ -42,3 +42,18 @@ func (s *PipelineState) GetOutput(nodeID string) (any, bool) {
 	v, ok := s.NodeOutputs[nodeID]
 	return v, ok
 }
+
+// Snapshot returns a copy of NodeOutputs, safe for a caller outside this
+// package (the Store, serializing state for a checkpoint) to read without
+// racing a concurrent SetOutput from another node's goroutine in the same
+// DAG level. Reading s.NodeOutputs directly from another package would be
+// a data race — always go through this or GetOutput/SetOutput instead.
+func (s *PipelineState) Snapshot() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make(map[string]any, len(s.NodeOutputs))
+	for k, v := range s.NodeOutputs {
+		cp[k] = v
+	}
+	return cp
+}

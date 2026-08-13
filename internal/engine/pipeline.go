@@ -14,24 +14,41 @@ import (
 
 // ErrAwaitingReview is returned by Run when the pipeline has paused at a
 // node flagged RequiresReview. It is not a failure: the caller should
-// persist state (Phase 2) and call Continue once a human has responded.
+// persist state and call Continue once a human has responded.
 var ErrAwaitingReview = errors.New("pipeline paused: awaiting review")
 
 // AgentFactory matches agents.Registry.Create's signature exactly, so a
 // *agents.Registry can be passed directly as a Pipeline's CreateAgent.
 type AgentFactory func(agentType string, cfg map[string]any) (domain.Agent, error)
 
+// Checkpointer is the subset of Store a Pipeline needs to persist progress.
+// A *store.SQLiteStore satisfies this structurally — engine deliberately
+// doesn't import the store package, so it stays testable without a DB.
+type Checkpointer interface {
+	Save(ctx context.Context, state *domain.PipelineState) error
+	SaveCheckpoint(ctx context.Context, runID, completedNodeID string) error
+}
+
 type Pipeline struct {
 	Def         *domain.PipelineDef
 	State       *domain.PipelineState
 	CreateAgent AgentFactory
+	Checkpoint  Checkpointer // nil is fine — checkpointing becomes a no-op (e.g. Phase 1 tests)
 }
 
-// Run executes the DAG level by level starting at fromLevel (0 for a fresh
-// run). Nodes within a level run concurrently. It returns ErrAwaitingReview
-// if it pauses at a review gate, nil on full completion, or another error
-// if an agent fails.
-func (p *Pipeline) Run(ctx context.Context, fromLevel int) error {
+// Run executes the DAG level by level. completed is the set of node IDs
+// that have already finished in a prior call (nil/empty for a fresh run) —
+// their nodes are skipped rather than re-executed, which is what makes
+// Resume safe after a crash mid-level: nodes that already checkpointed
+// don't run twice, and nodes that never got to run do. Nodes within a
+// level that do need to run execute concurrently. Run returns
+// ErrAwaitingReview if it pauses at a review gate, nil on full completion,
+// or another error if an agent fails.
+func (p *Pipeline) Run(ctx context.Context, completed map[string]bool) error {
+	if completed == nil {
+		completed = map[string]bool{}
+	}
+
 	levels, err := Levels(p.Def)
 	if err != nil {
 		return err
@@ -43,12 +60,29 @@ func (p *Pipeline) Run(ctx context.Context, fromLevel int) error {
 	}
 
 	p.State.Status = domain.StatusRunning
+	if err := p.persist(ctx); err != nil {
+		return err
+	}
 
-	for li := fromLevel; li < len(levels); li++ {
-		level := levels[li]
+	for _, level := range levels {
+		var toRun []string
+		for _, id := range level {
+			if !completed[id] {
+				toRun = append(toRun, id)
+			}
+		}
+
+		// Every node in this level already finished in a prior call (e.g.
+		// Continue resuming past a level that just passed its review gate,
+		// or Resume replaying levels before the crash point) — nothing to
+		// run, and this level's review-gate decision (if any) was already
+		// made back when it first completed. Move straight to the next.
+		if len(toRun) == 0 {
+			continue
+		}
 
 		g, gctx := errgroup.WithContext(ctx)
-		for _, nodeID := range level {
+		for _, nodeID := range toRun {
 			node := nodeByID[nodeID]
 			g.Go(func() error {
 				cfg := make(map[string]any, len(node.Config)+1)
@@ -64,12 +98,16 @@ func (p *Pipeline) Run(ctx context.Context, fromLevel int) error {
 				if err := agent.Execute(gctx, p.State); err != nil {
 					return fmt.Errorf("node %s: %w", node.ID, err)
 				}
+				if err := p.checkpointNode(ctx, node.ID); err != nil {
+					return fmt.Errorf("node %s: checkpoint: %w", node.ID, err)
+				}
 				return nil
 			})
 		}
 
 		if err := g.Wait(); err != nil {
 			p.State.Status = domain.StatusFailed
+			_ = p.persist(ctx)
 			return err
 		}
 
@@ -77,17 +115,23 @@ func (p *Pipeline) Run(ctx context.Context, fromLevel int) error {
 			p.State.Status = domain.StatusAwaitingReview
 			p.State.PendingNodeID = reviewNodeID
 			p.State.ActionToken = newActionToken()
+			if err := p.persist(ctx); err != nil {
+				return err
+			}
 			return ErrAwaitingReview
 		}
 	}
 
 	p.State.Status = domain.StatusCompleted
-	return nil
+	return p.persist(ctx)
 }
 
 // Continue resolves a review-gate pause. approve=false rejects the run
 // (terminal). approve=true applies editedOutputs (if any) on top of the
-// pending node's output and resumes the DAG from the level after it.
+// pending node's output and resumes the DAG from the level after it —
+// every node up to and including the paused level is, by construction,
+// already checkpointed (the pause only happens once its whole level
+// finishes), so it's passed to Run as already-completed.
 func (p *Pipeline) Continue(ctx context.Context, approve bool, editedOutputs map[string]any) error {
 	if p.State.Status != domain.StatusAwaitingReview {
 		return fmt.Errorf("run %s is not awaiting review", p.State.RunID)
@@ -97,7 +141,7 @@ func (p *Pipeline) Continue(ctx context.Context, approve bool, editedOutputs map
 		p.State.Status = domain.StatusRejected
 		p.State.PendingNodeID = ""
 		p.State.ActionToken = ""
-		return nil
+		return p.persist(ctx)
 	}
 
 	for k, v := range editedOutputs {
@@ -125,7 +169,31 @@ func (p *Pipeline) Continue(ctx context.Context, approve bool, editedOutputs map
 		return fmt.Errorf("pending node %q not found in pipeline %q", pendingNodeID, p.Def.ID)
 	}
 
-	return p.Run(ctx, levelIdx+1)
+	completed := map[string]bool{}
+	for i := 0; i <= levelIdx; i++ {
+		for _, id := range levels[i] {
+			completed[id] = true
+		}
+	}
+
+	return p.Run(ctx, completed)
+}
+
+func (p *Pipeline) checkpointNode(ctx context.Context, nodeID string) error {
+	if p.Checkpoint == nil {
+		return nil
+	}
+	if err := p.Checkpoint.Save(ctx, p.State); err != nil {
+		return err
+	}
+	return p.Checkpoint.SaveCheckpoint(ctx, p.State.RunID, nodeID)
+}
+
+func (p *Pipeline) persist(ctx context.Context) error {
+	if p.Checkpoint == nil {
+		return nil
+	}
+	return p.Checkpoint.Save(ctx, p.State)
 }
 
 func firstReviewNode(level []string, nodeByID map[string]domain.NodeDef) (string, bool) {
