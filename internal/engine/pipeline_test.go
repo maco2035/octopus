@@ -60,7 +60,7 @@ func TestDiamondDAG_RunsLevelsInParallel(t *testing.T) {
 	state := domain.NewPipelineState("run-diamond")
 	p := &engine.Pipeline{Def: def, State: state, CreateAgent: reg.Create}
 
-	if err := p.Run(context.Background(), 0); err != nil {
+	if err := p.Run(context.Background(), nil); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 	if state.Status != domain.StatusCompleted {
@@ -121,7 +121,7 @@ func TestReviewGate_PausesEditsAndContinues(t *testing.T) {
 	state := domain.NewPipelineState("run-review")
 	p := &engine.Pipeline{Def: def, State: state, CreateAgent: reg.Create}
 
-	err := p.Run(context.Background(), 0)
+	err := p.Run(context.Background(), nil)
 	if !errors.Is(err, engine.ErrAwaitingReview) {
 		t.Fatalf("expected ErrAwaitingReview, got %v", err)
 	}
@@ -174,7 +174,7 @@ func TestReviewGate_Reject(t *testing.T) {
 	state := domain.NewPipelineState("run-reject")
 	p := &engine.Pipeline{Def: def, State: state, CreateAgent: reg.Create}
 
-	if err := p.Run(context.Background(), 0); !errors.Is(err, engine.ErrAwaitingReview) {
+	if err := p.Run(context.Background(), nil); !errors.Is(err, engine.ErrAwaitingReview) {
 		t.Fatalf("expected ErrAwaitingReview, got %v", err)
 	}
 
