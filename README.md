@@ -41,12 +41,15 @@ your laptop, not wherever the server happens to be hosted.
 On each dev machine that should do work:
 
 ```sh
+# Start the runner directly:
+go run ./cmd/octopus-runner
+
+# Or build the binary:
 go build -o octopus-runner ./cmd/octopus-runner
-cp runner.example.yaml runner.yaml
-# log into the web UI > Runners > "New runner" — copy the token it shows you (shown once)
-# put server_url + that token in runner.yaml
-OCTOPUS_RUNNER_CONFIG=./runner.yaml ./octopus-runner
+./octopus-runner
 ```
+
+When started, `octopus-runner` automatically hosts a local Web Dashboard at **`http://localhost:8088`**. You can open it in your browser to enter the server WebSocket URL and runner token, verify your CLI toolchains, and monitor live execution. Alternatively, you can pre-configure `runner.yaml` (from `runner.example.yaml`).
 
 Make sure the runner machine has `git`, and whichever of `claude` /
 `codex` / `gemini` your pipelines use, actually installed and on `PATH` —

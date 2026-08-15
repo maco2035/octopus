@@ -1,6 +1,9 @@
 /data/
 *.db
 /octopus.yaml
+/runner.yaml
+runner.yaml
 /octopus
-/octopus-runner
+octopus-runner
+**/octopus-runner
 .claude/

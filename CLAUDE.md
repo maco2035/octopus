@@ -43,8 +43,26 @@ go run ./cmd/octopus
 
 ## 🏃 Runner Deployment Modes
 
-### 1. Standalone Binary (Primary / Recommended for Dev Machines)
-Runs directly on the host with native access to dev tools, SSH keys, language compilers, and installed CLI agents (`claude`, `gemini`, `codex`):
+### 1. Standalone Binary / One-Command Runner (Primary / Recommended)
+Runs directly on the host with native access to dev tools, SSH keys, language compilers, and installed CLI agents (`claude`, `gemini`, `codex`).
+
+**Fastest way to start:**
+```bash
+# From repository root:
+go run ./cmd/octopus-runner
+
+# Or from cmd/octopus-runner:
+go run main.go
+```
+
+**Local Web Dashboard (`http://localhost:8088`):**
+When started, `octopus-runner` automatically serves a local web dashboard at `http://localhost:8088`. Open it in your browser to:
+- 🌐 Configure or change the **Server WebSocket URL** and **Runner Token** directly from the UI.
+- 🛠️ Inspect local **Toolchain Health** (detects installed versions of `git`, `claude`, `gemini`, `codex`).
+- ⚡ Monitor **Active Executions** and view recent **Job History** with output logs.
+- 💾 Settings automatically save to `runner.yaml` and trigger immediate reconnects.
+
+**Or pre-configure via `runner.yaml` / CLI:**
 ```bash
 # Build runner binary
 go build -o octopus-runner ./cmd/octopus-runner
@@ -55,10 +73,11 @@ server_url: ws://<server-ip>:8080/runner/connect
 runner_token: "<runner-token-from-web-ui>"
 clone_cache_dir: ~/.octopus/clones
 local_queue_db: ~/.octopus/runner.db
+web_port: 8088
 EOF
 
 # Start runner
-OCTOPUS_RUNNER_CONFIG=./runner.yaml ./octopus-runner
+./octopus-runner
 ```
 
 ### 2. Docker Runner (Future / Isolated Deployment Idea)

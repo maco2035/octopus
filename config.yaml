@@ -1,5 +1,5 @@
 name: Octopus
-version: "0.2.2"
+version: "0.2.3"
 slug: octopus
 description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
 url: https://github.com/maco2035/octopus
