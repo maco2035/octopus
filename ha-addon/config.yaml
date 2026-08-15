@@ -26,16 +26,20 @@ ports_description:
 # Only admin_password is actually required. Everything else has a working
 # default or can be left blank until you need it (e.g. skip Slack entirely
 # at first). See DOCS.md for what each one does.
+#
+# Per Home Assistant's own convention, a field marked optional ("type?" in
+# schema) must have NO entry here in options — not even an empty string.
+# Giving it one anyway is a documented footgun, and not just a style
+# nit: verified against the actual bashio shipped in
+# ghcr.io/home-assistant/amd64-base:3.19 that bashio::config on a key
+# that's genuinely absent from options.json returns the four-character
+# string "null" unless the caller passes an explicit fallback — run.sh
+# does that for every field left out below.
 options:
   admin_username: "admin"
   admin_password: ""
-  gemini_api_key: ""
-  anthropic_api_key: ""
-  openai_api_key: ""
-  slack_signing_secret: ""
   branch_pattern: "octopus/{ticket_id}"
   runner_enabled: true
-  web_base_url: ""
 schema:
   admin_username: str
   admin_password: password
