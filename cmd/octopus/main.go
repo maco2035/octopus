@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -155,6 +156,20 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
+}
+
+// Hijack lets statusWriter satisfy http.Hijacker by delegating to the
+// wrapped ResponseWriter. Without this, requestLogger's wrapping breaks the
+// gorilla/websocket upgrade on /runner/connect: Upgrade() type-asserts for
+// http.Hijacker, and an embedded http.ResponseWriter interface field doesn't
+// promote a Hijack method the interface itself doesn't declare, so every
+// runner connection attempt failed with a 500 before reaching the handler.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("statusWriter: underlying ResponseWriter does not support hijacking")
+	}
+	return hj.Hijack()
 }
 
 // resumeAwaitingRunner retries every AWAITING_RUNNER run scoped to
