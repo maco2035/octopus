@@ -1,25 +1,20 @@
 services:
   octopus:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
-      # Required — docker-entrypoint.sh hashes this at container start and
-      # refuses to boot without it. Set it in a .env file next to this
-      # docker-compose.yml (OCTOPUS_ADMIN_PASSWORD=...), not directly here.
-      OCTOPUS_ADMIN_PASSWORD: ${OCTOPUS_ADMIN_PASSWORD:?set OCTOPUS_ADMIN_PASSWORD in a .env file before running}
-      OCTOPUS_ADMIN_USERNAME: ${OCTOPUS_ADMIN_USERNAME:-admin}
-      # Everything below is optional — leave unset until you need it.
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
-      OCTOPUS_BRANCH_PATTERN: ${OCTOPUS_BRANCH_PATTERN:-octopus/{ticket_id}}
-      OCTOPUS_RUNNER_ENABLED: ${OCTOPUS_RUNNER_ENABLED:-false}
-      OCTOPUS_WEB_BASE_URL: ${OCTOPUS_WEB_BASE_URL:-}
+      - OCTOPUS_ADMIN_USERNAME=${OCTOPUS_ADMIN_USERNAME:-admin}
+      - OCTOPUS_ADMIN_PASSWORD=${OCTOPUS_ADMIN_PASSWORD:-admin}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-}
+      - OCTOPUS_BRANCH_PATTERN=${OCTOPUS_BRANCH_PATTERN:-octopus/{ticket_id}}
+      - OCTOPUS_RUNNER_ENABLED=${OCTOPUS_RUNNER_ENABLED:-false}
+      - OCTOPUS_WEB_BASE_URL=${OCTOPUS_WEB_BASE_URL:-}
     volumes:
-      - octopus-data:/app/data
+      - ./data:/app/data
     restart: unless-stopped
-
-volumes:
-  octopus-data:

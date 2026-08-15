@@ -1,44 +1,20 @@
-name: "Octopus"
+name: Octopus
 version: "0.1.1"
-slug: "octopus"
+slug: octopus
 description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
-url: "https://github.com/maco2035/octopus"
+url: https://github.com/maco2035/octopus
 arch:
   - amd64
   - aarch64
-init: false
 startup: application
 boot: auto
-hassio_api: true
+init: false
 ingress: true
 ingress_port: 8080
 panel_icon: mdi:octopus
+webui: http://[HOST]:[PORT:8080]
 ports:
   8080/tcp: 8080
 ports_description:
   8080/tcp: "Octopus web UI and API (also reachable via Ingress)"
-# Only admin_password is actually required. Everything else has a working
-# default or can be left blank until you need it (e.g. skip Slack entirely
-# at first). See the root README.md for what each one does.
-#
-# Per Home Assistant's own convention, a field marked optional ("type?" in
-# schema) must have NO entry here in options — not even an empty string.
-# docker-entrypoint.sh passes an explicit '' fallback to bashio::config for
-# each of these, since a genuinely absent key otherwise comes back as the
-# literal string "null" (verified against the real bashio source shipped
-# in the HA base image, not assumed).
-options:
-  admin_username: "admin"
-  admin_password: ""
-  branch_pattern: "octopus/{ticket_id}"
-  runner_enabled: true
-schema:
-  admin_username: str
-  admin_password: password
-  gemini_api_key: password?
-  anthropic_api_key: password?
-  openai_api_key: password?
-  slack_signing_secret: password?
-  branch_pattern: str
-  runner_enabled: bool
-  web_base_url: str?
+map: []
