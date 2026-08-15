@@ -1,0 +1,17 @@
+services:
+  octopus-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    environment:
+      - SERVER_URL=${OCTOPUS_SERVER_URL:-ws://localhost:8080/runner/connect}
+      - RUNNER_TOKEN=${OCTOPUS_RUNNER_TOKEN:?set OCTOPUS_RUNNER_TOKEN in .env or environment}
+    volumes:
+      # Mount SSH keys so git can fetch/push private repos
+      - ~/.ssh:/root/.ssh:ro
+      # Persist local clones and queue database
+      - runner-data:/root/.octopus
+    restart: unless-stopped
+
+volumes:
+  runner-data:
