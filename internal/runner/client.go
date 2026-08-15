@@ -66,11 +66,24 @@ func (c *Client) Run(ctx context.Context) error {
 }
 
 func (c *Client) connectAndServe(ctx context.Context) error {
+	return c.connectAndServeWithHooks(ctx, nil, nil, nil, nil)
+}
+
+func (c *Client) connectAndServeWithHooks(
+	ctx context.Context,
+	onConnect func(),
+	onDisconnect func(err error),
+	onJobStart func(job *domain.GitJob),
+	onJobFinish func(job *domain.GitJob, res *domain.GitJobResult),
+) (retErr error) {
 	header := http.Header{}
 	header.Set("X-Runner-Token", c.Token)
 
 	ws, _, err := websocket.DefaultDialer.DialContext(ctx, c.ServerURL, header)
 	if err != nil {
+		if onDisconnect != nil {
+			onDisconnect(err)
+		}
 		return err
 	}
 	defer ws.Close()
@@ -82,15 +95,16 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		c.mu.Lock()
 		c.conn = nil
 		c.mu.Unlock()
+		if onDisconnect != nil {
+			onDisconnect(retErr)
+		}
 	}()
 
 	slog.Info("runner: connected", "server", c.ServerURL)
+	if onConnect != nil {
+		onConnect()
+	}
 
-	// ReadJSON below blocks on the raw connection and doesn't watch ctx by
-	// itself — without this, cancelling ctx (process shutdown, or a test
-	// simulating this runner going offline) would leave the connection
-	// open until the *server* noticed. Closing it here is what turns
-	// "context cancelled" into an actual disconnect.
 	stopWatcher := make(chan struct{})
 	defer close(stopWatcher)
 	go func() {
@@ -101,49 +115,47 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		}
 	}()
 
-	// Flush anything left over from a previous disconnect (or a prior
-	// process that crashed with results still queued) before accepting
-	// new work.
 	c.flushUnsentResults()
 
 	for {
 		var msg wireMessage
 		if err := ws.ReadJSON(&msg); err != nil {
+			retErr = err
 			return err
 		}
 		if msg.Type != "job" || msg.Job == nil {
 			continue
 		}
 
-		// Deliberately not waited on before this function returns: a job
-		// in flight when the connection drops keeps running against the
-		// Client's own persistent state (Queue, Dispatcher), completely
-		// independent of this specific connection attempt — that's the
-		// whole point of the local durable queue. Waiting here would only
-		// delay reconnection and, worse, let a job finish while c.conn
-		// still (briefly) points at the dying connection, racing a result
-		// into a socket nobody's reading from anymore instead of queuing
-		// it correctly.
-		go c.handleJob(ctx, msg.Job)
+		go c.handleJobWithHooks(ctx, msg.Job, onJobStart, onJobFinish)
 	}
 }
 
-// handleJob executes one job and gets its result durably queued before
-// ever attempting to send it — the ordering (save received, execute, save
-// result, then try to send) is what makes a disconnect or process
-// restart mid-job lossless.
 func (c *Client) handleJob(ctx context.Context, job *domain.GitJob) {
+	c.handleJobWithHooks(ctx, job, nil, nil)
+}
+
+func (c *Client) handleJobWithHooks(
+	ctx context.Context,
+	job *domain.GitJob,
+	onStart func(job *domain.GitJob),
+	onFinish func(job *domain.GitJob, res *domain.GitJobResult),
+) {
+	if onStart != nil {
+		onStart(job)
+	}
 	if err := c.Queue.SaveReceived(job); err != nil {
 		slog.Error("runner: saving received job locally", "job_id", job.ID, "error", err)
 	}
 
-	// LocalDispatcher.Dispatch's error return is always nil by design
-	// (job failures land in result.Success/Error, not the error return —
-	// see tools/localdispatch.go); the check here is defensive.
 	result, err := c.Dispatcher.Dispatch(ctx, job)
 	if err != nil {
 		slog.Error("runner: dispatch itself failed unexpectedly", "job_id", job.ID, "error", err)
 		result = &domain.GitJobResult{JobID: job.ID, Success: false, Error: err.Error()}
+	}
+
+	if onFinish != nil {
+		onFinish(job, result)
 	}
 
 	if err := c.Queue.SaveUnsentResult(result); err != nil {
