@@ -4,7 +4,13 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      # Host side is configurable; container side stays 8080 (that's what
+      # octopus actually listens on inside the container, per
+      # docker-entrypoint.sh). Set OCTOPUS_HOST_PORT in .env to move the
+      # host-facing port, e.g. OCTOPUS_HOST_PORT=8085. If you're putting
+      # this behind cloudflared in the same compose stack, you likely don't
+      # need this published at all — see README.md.
+      - "${OCTOPUS_HOST_PORT:-8080}:8080"
     environment:
       - OCTOPUS_ADMIN_USERNAME=${OCTOPUS_ADMIN_USERNAME:-admin}
       - OCTOPUS_ADMIN_PASSWORD=${OCTOPUS_ADMIN_PASSWORD:-admin}
@@ -18,3 +24,21 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  # Uncomment to expose Octopus through a Cloudflare Tunnel instead of a
+  # published host port. cloudflared reaches octopus over this compose
+  # network's internal DNS (service name "octopus", container port 8080 —
+  # never the host-published port above), so if this is your only way in
+  # you can also delete the `ports:` block on the octopus service entirely
+  # and nothing outside this Docker network can reach it directly. Get
+  # TUNNEL_TOKEN from a named tunnel you create in the Zero Trust dashboard
+  # (Networks > Tunnels > Create a tunnel > Docker), where you also set the
+  # Public Hostname to point at service http://octopus:8080.
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   command: tunnel run
+  #   environment:
+  #     TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - octopus

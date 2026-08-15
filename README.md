@@ -92,6 +92,29 @@ a real local git identity, SSH/PAT credentials, and whichever coding CLIs
 are installed on that specific machine, so it's meant to run natively on
 each dev machine, not as a disposable container).
 
+### Changing the port / exposing it via Cloudflare Tunnel
+
+Octopus always listens on `8080` *inside* the container — that's fixed.
+What's configurable is the **host** side of the mapping:
+
+```sh
+echo "OCTOPUS_HOST_PORT=8085" >> .env
+docker compose up --build
+```
+
+now reaches it at `http://localhost:8085`.
+
+If you're putting this behind `cloudflared`, you likely don't need
+`OCTOPUS_HOST_PORT` (or a published port at all): `docker-compose.yml` has
+a commented-out `cloudflared` service that joins the same Docker network
+and reaches Octopus at `http://octopus:8080` directly — the container port,
+not whatever host port you picked. Uncomment it, set `TUNNEL_TOKEN` in
+`.env` from a tunnel you create in the Cloudflare Zero Trust dashboard
+(**Networks → Tunnels → Create a tunnel → Docker**, Public Hostname
+pointing at `http://octopus:8080`), and you can drop the `ports:` block on
+the `octopus` service entirely — nothing outside the Docker network can
+reach it except through the tunnel.
+
 ## Run as a Home Assistant add-on
 
 This is the deployment shape `PLAN.md` is actually written around: an
@@ -101,15 +124,28 @@ and goes.
 1. HA → **Settings → Add-ons → Add-on Store** (shown as **Settings → Apps
    → App Store** on some HA versions) → **⋮ → Repositories** → add
    `https://github.com/maco2035/octopus`.
-2. Install **Octopus**. Home Assistant Supervisor builds it locally the
-   same way `docker compose up --build` does — the add-on manifest
-   (`config.yaml`) lives at the repo root specifically so Supervisor's
-   build has the Go source right there alongside it, no separate registry
-   or CI step involved.
+2. Install **Octopus**. Supervisor pulls a pre-built image from GHCR
+   (`.github/workflows/publish-ha-addon.yml` builds and publishes it on
+   every push to `main`) rather than building locally — Supervisor's
+   local-build path turned out to hit a real Supervisor bug, failing every
+   install with `Invalid token for access /addons/self/options/config`
+   right after the build finished (home-assistant/supervisor#4111, #1930).
+   One-time setup if you're maintaining your own fork: after the workflow
+   runs once, its GHCR packages default to private — flip
+   `octopus-addon-amd64` and `octopus-addon-aarch64` to Public under the
+   repo's Packages tab, or Supervisor's anonymous pull will fail.
 3. Configuration tab → set `admin_password` → Save → Start. Everything
    else (API keys, Slack, the runner switch) is optional, same as Docker.
 4. Open the add-on's **Web UI** (or find Octopus in the HA sidebar —
    Ingress is on by default) and log in as `admin` / whatever you set.
+
+To change the host-facing port (e.g. to run behind `cloudflared` on a
+non-default port), the add-on's page has a **Network** tab — remap the
+`8080/tcp` container port to whatever host port you want there, no config
+file edit needed; Supervisor persists it. If you're using Ingress, though,
+you don't need any of this: Ingress already reaches the add-on over HA's
+internal network regardless of the host port mapping, so route `cloudflared`
+at HA's own Ingress URL instead of Octopus's container port directly.
 
 ## Test
 
