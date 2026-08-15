@@ -1,0 +1,24 @@
+ARG BUILD_FROM=debian:trixie-slim
+
+FROM golang:1.26-trixie AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY VERSION ./VERSION
+RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=$(cat VERSION)" -o /out/octopus-runner ./cmd/octopus-runner
+
+FROM $BUILD_FROM
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates tzdata git jq curl openssh-client && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /out/octopus-runner ./octopus-runner
+
+ENV OCTOPUS_RUNNER_CONFIG=/app/runner.yaml
+
+RUN printf '#!/bin/sh\nset -e\nif [ ! -f /app/runner.yaml ]; then\n  cat > /app/runner.yaml <<YAML\nserver_url: "${SERVER_URL:-${OCTOPUS_SERVER_URL:-ws://localhost:8080/runner/connect}}"\nrunner_token: "${RUNNER_TOKEN:-${OCTOPUS_RUNNER_TOKEN}}"\nclone_cache_dir: "${CLONE_CACHE_DIR:-/root/.octopus/clones}"\nlocal_queue_db: "${LOCAL_QUEUE_DB:-/root/.octopus/runner.db}"\nYAML\nfi\nexec /app/octopus-runner\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+CMD ["/app/entrypoint.sh"]
