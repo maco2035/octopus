@@ -2,8 +2,9 @@
 # One entrypoint for both run modes this image supports: a plain
 # `docker run`/docker-compose container, and a Home Assistant add-on. It
 # tells them apart by whether bashio is present (only true when built
-# FROM a Home Assistant base image, per build.yaml) — verified against the
-# real ghcr.io/home-assistant/amd64-base:3.19 image, not assumed. bashio
+# FROM a Home Assistant base image, per the publish-ha-addon.yml CI build)
+# — verified against the real ghcr.io/home-assistant/amd64-base:3.19
+# image, not assumed. bashio
 # itself needs bash (its lib sources fail under plain POSIX sh with a
 # syntax error), which is why this script's shebang is bash and the
 # Dockerfile installs it unconditionally — cheap, and harmless on the

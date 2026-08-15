@@ -1,11 +1,12 @@
 # Lets this repo be added directly in Home Assistant as a custom add-on
 # repository (Settings > Add-ons > Add-on Store > ⋮ > Repositories). HA
 # auto-discovers any folder containing a config.yaml as one add-on — here
-# that's the repo root itself, deliberately: Supervisor's build context for
-# an add-on is always exactly that folder, and the root Dockerfile needs
-# go.mod/cmd/internal alongside it to build the binary. A separate ha-addon/
-# subfolder can't see those, and doesn't work without a whole extra
-# CI-publishes-to-a-registry setup to route around it.
+# that's the repo root itself. config.yaml's `image:` field tells
+# Supervisor to pull a pre-built image from GHCR
+# (.github/workflows/publish-ha-addon.yml) rather than building locally —
+# Supervisor's local-build path (build.yaml) hit a real Supervisor bug,
+# failing every install with "Invalid token for access
+# /addons/self/options/config" (home-assistant/supervisor#4111, #1930).
 name: "Octopus Add-ons"
 url: "https://github.com/maco2035/octopus"
 maintainer: "maco2035"

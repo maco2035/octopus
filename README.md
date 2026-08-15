@@ -124,11 +124,16 @@ and goes.
 1. HA → **Settings → Add-ons → Add-on Store** (shown as **Settings → Apps
    → App Store** on some HA versions) → **⋮ → Repositories** → add
    `https://github.com/maco2035/octopus`.
-2. Install **Octopus**. Home Assistant Supervisor builds it locally the
-   same way `docker compose up --build` does — the add-on manifest
-   (`config.yaml`) lives at the repo root specifically so Supervisor's
-   build has the Go source right there alongside it, no separate registry
-   or CI step involved.
+2. Install **Octopus**. Supervisor pulls a pre-built image from GHCR
+   (`.github/workflows/publish-ha-addon.yml` builds and publishes it on
+   every push to `main`) rather than building locally — Supervisor's
+   local-build path turned out to hit a real Supervisor bug, failing every
+   install with `Invalid token for access /addons/self/options/config`
+   right after the build finished (home-assistant/supervisor#4111, #1930).
+   One-time setup if you're maintaining your own fork: after the workflow
+   runs once, its GHCR packages default to private — flip
+   `octopus-addon-amd64` and `octopus-addon-aarch64` to Public under the
+   repo's Packages tab, or Supervisor's anonymous pull will fail.
 3. Configuration tab → set `admin_password` → Save → Start. Everything
    else (API keys, Slack, the runner switch) is optional, same as Docker.
 4. Open the add-on's **Web UI** (or find Octopus in the HA sidebar —
