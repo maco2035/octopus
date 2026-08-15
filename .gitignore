@@ -1,6 +1,6 @@
 /data/
 *.db
-/config.yaml
+/octopus.yaml
 /octopus
 /octopus-runner
 .claude/

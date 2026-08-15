@@ -1,7 +1,11 @@
 # Lets this repo be added directly in Home Assistant as a custom add-on
 # repository (Settings > Add-ons > Add-on Store > ⋮ > Repositories). HA
 # auto-discovers any folder containing a config.yaml as one add-on — here
-# that's ha-addon/.
+# that's the repo root itself, deliberately: Supervisor's build context for
+# an add-on is always exactly that folder, and the root Dockerfile needs
+# go.mod/cmd/internal alongside it to build the binary. A separate ha-addon/
+# subfolder can't see those, and doesn't work without a whole extra
+# CI-publishes-to-a-registry setup to route around it.
 name: "Octopus Add-ons"
 url: "https://github.com/maco2035/octopus"
 maintainer: "maco2035"

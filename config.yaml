@@ -3,13 +3,6 @@ version: "0.1.0"
 slug: "octopus"
 description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
 url: "https://github.com/maco2035/octopus"
-# Pre-built by .github/workflows/publish-ha-addon.yml and pushed to GHCR —
-# Supervisor pulls this instead of building locally. That's what makes
-# "add the repo, click install" actually fast and reliable: Supervisor
-# only ever has this ha-addon/ folder as build context, and it can't see
-# the Go source (cmd/, internal/, go.mod) that lives at the repo root, so
-# a local build here would fail no matter how this folder were arranged.
-image: "ghcr.io/maco2035/octopus-addon-{arch}"
 arch:
   - amd64
   - aarch64
@@ -25,16 +18,14 @@ ports_description:
   8080/tcp: "Octopus web UI and API (also reachable via Ingress)"
 # Only admin_password is actually required. Everything else has a working
 # default or can be left blank until you need it (e.g. skip Slack entirely
-# at first). See DOCS.md for what each one does.
+# at first). See the root README.md for what each one does.
 #
 # Per Home Assistant's own convention, a field marked optional ("type?" in
 # schema) must have NO entry here in options — not even an empty string.
-# Giving it one anyway is a documented footgun, and not just a style
-# nit: verified against the actual bashio shipped in
-# ghcr.io/home-assistant/amd64-base:3.19 that bashio::config on a key
-# that's genuinely absent from options.json returns the four-character
-# string "null" unless the caller passes an explicit fallback — run.sh
-# does that for every field left out below.
+# docker-entrypoint.sh passes an explicit '' fallback to bashio::config for
+# each of these, since a genuinely absent key otherwise comes back as the
+# literal string "null" (verified against the real bashio source shipped
+# in the HA base image, not assumed).
 options:
   admin_username: "admin"
   admin_password: ""

@@ -40,7 +40,14 @@ func main() {
 
 	configPath := os.Getenv("OCTOPUS_CONFIG")
 	if configPath == "" {
-		configPath = "config.yaml"
+		// Not "config.yaml": that path is the Home Assistant add-on
+		// manifest at the repo root, a completely different file with a
+		// completely different schema — loading it here would either
+		// fail validation or silently do the wrong thing. Docker and the
+		// HA add-on always set OCTOPUS_CONFIG explicitly (see
+		// docker-entrypoint.sh), so this default only matters for running
+		// straight from source; see octopus.example.yaml.
+		configPath = "octopus.yaml"
 	}
 
 	cfg, err := config.Load(configPath)
@@ -174,8 +181,9 @@ func resumeAwaitingRunner(ctx context.Context, sched *scheduler.Scheduler, st *s
 
 // runHashPassword implements `octopus hash-password [password]`, used to
 // generate AuthConfig.AdminPasswordHash without ever writing a plaintext
-// password into config.yaml. If no argument is given it reads stdin, so the
-// password doesn't linger in shell history either.
+// password into the server's own config. If no argument is given it reads
+// stdin, so the password doesn't linger in shell history either —
+// docker-entrypoint.sh uses exactly that form.
 func runHashPassword(args []string) {
 	var password string
 	if len(args) > 0 {
