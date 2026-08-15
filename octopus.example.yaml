@@ -1,6 +1,11 @@
-# config.example.yaml — the central server. Copy to config.yaml for local
-# use, or mount it in Docker; ${VAR} references are expanded from the
-# process environment.
+# octopus.example.yaml — for running the server directly from source
+# (`go run ./cmd/octopus`). Copy to octopus.yaml (gitignored) and fill in
+# real values; ${VAR} references are expanded from the process
+# environment. Not named config.yaml/config.example.yaml on purpose: the
+# repo root's config.yaml is the Home Assistant add-on manifest, a
+# completely different file — Docker and the HA add-on don't use this
+# file at all, they generate their own runtime config from environment
+# variables at container start (see docker-entrypoint.sh).
 port: 8080
 agents:
   gemini_api_key: ${GEMINI_API_KEY}

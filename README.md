@@ -9,10 +9,13 @@ design.
 
 ## Quick start (single machine, no runner)
 
+The simplest way to run Octopus at all is Docker Compose — see below. To
+run straight from source instead:
+
 ```sh
-cp config.example.yaml config.yaml
+cp octopus.example.yaml octopus.yaml
 go run ./cmd/octopus hash-password        # generates a bcrypt hash — enter a password when prompted
-# put that hash in config.yaml's auth.admin_password_hash (or export OCTOPUS_ADMIN_PASSWORD_HASH)
+# put that hash in octopus.yaml's auth.admin_password_hash (or export OCTOPUS_ADMIN_PASSWORD_HASH)
 go run ./cmd/octopus
 curl localhost:8080/healthz
 ```
@@ -23,15 +26,16 @@ this mode the server executes git and coding-CLI work itself
 (`tools.LocalDispatcher`) — simplest to get started with, but everything
 runs on whatever machine the server is on, and that machine needs the
 relevant coding CLIs (`claude` / `codex` / `gemini`) installed and any
-API keys it needs available as `agents.*_api_key` in `config.yaml`.
+API keys it needs available as `agents.*_api_key` in `octopus.yaml`.
 
 ## Multi-machine (the intended real deployment)
 
-Set `runner.enabled: true` in `config.yaml`. The server now dispatches
-git/coding-CLI work over `/runner/connect` to any connected
+Set `runner.enabled: true` (`OCTOPUS_RUNNER_ENABLED=true` for Docker/the HA
+add-on, `runner.enabled: true` in `octopus.yaml` from source). The server
+now dispatches git/coding-CLI work over `/runner/connect` to any connected
 `octopus-runner` process instead of doing it itself — no AI provider keys
-need to live on the server's own disk beyond what's in `config.yaml`
-already, and the machine actually running `claude`/`codex`/`gemini` can be
+need to live on the server's own disk beyond what it's already configured
+with, and the machine actually running `claude`/`codex`/`gemini` can be
 your laptop, not wherever the server happens to be hosted.
 
 On each dev machine that should do work:
@@ -54,14 +58,14 @@ from the project page's "Make default" button.
 
 ## Slack integration
 
-Set `slack.signing_secret` (and, if you plan to extend the notifier beyond
-`response_url`, `slack.bot_token`) in `config.yaml` — the gateway turns on
-automatically once a signing secret is present. Create the Slack app from
+Set the signing secret (`slack.signing_secret` in `octopus.yaml` from
+source; `SLACK_SIGNING_SECRET` for Docker; `slack_signing_secret` in the HA
+add-on's Configuration tab) — the gateway turns on automatically once one
+is present. Create the Slack app from
 [`slack-app-manifest.yaml`](slack-app-manifest.yaml) (api.slack.com/apps →
 "Create New App" → "From an app manifest"), swap in your real server
 address in both request URLs, install it to your workspace, and copy the
-Signing Secret from the app's "Basic Information" page into
-`config.yaml`/`SLACK_SIGNING_SECRET`.
+Signing Secret from the app's "Basic Information" page.
 
 Usage: `/octopus <project_id> <ticket_id>` starts a run against that
 project's default pipeline; Octopus posts a Block Kit card back to the
@@ -72,9 +76,16 @@ anything that needs an edit or a reject.
 ## Run in Docker
 
 ```sh
-cp config.example.yaml config.yaml   # first time only
+echo "OCTOPUS_ADMIN_PASSWORD=pick-something" > .env   # the only required setting
 docker compose up --build
 ```
+
+Then open **http://localhost:8080** and log in as `admin` / whatever you
+put in `.env`. No config file to copy, no `hash-password` command to run
+by hand — `docker-entrypoint.sh` hashes it and writes the real config
+itself at container start. Data persists in the `octopus-data` named
+volume. Everything else (API keys, Slack, the runner switch) is optional —
+see `docker-compose.yml` for the full list of environment variables.
 
 This runs the server only — `octopus-runner` isn't containerized (it needs
 a real local git identity, SSH/PAT credentials, and whichever coding CLIs
@@ -83,10 +94,22 @@ each dev machine, not as a disposable container).
 
 ## Run as a Home Assistant add-on
 
-See [`ha-addon/DOCS.md`](ha-addon/DOCS.md) — this is the deployment shape
-`PLAN.md` is actually written around: an always-on HA box as the central
-brain (`runner_enabled: true` by default in the add-on), your laptop as a
-runner that comes and goes.
+This is the deployment shape `PLAN.md` is actually written around: an
+always-on HA box as the central brain, your laptop as a runner that comes
+and goes.
+
+1. HA → **Settings → Add-ons → Add-on Store** (shown as **Settings → Apps
+   → App Store** on some HA versions) → **⋮ → Repositories** → add
+   `https://github.com/maco2035/octopus`.
+2. Install **Octopus**. Home Assistant Supervisor builds it locally the
+   same way `docker compose up --build` does — the add-on manifest
+   (`config.yaml`) lives at the repo root specifically so Supervisor's
+   build has the Go source right there alongside it, no separate registry
+   or CI step involved.
+3. Configuration tab → set `admin_password` → Save → Start. Everything
+   else (API keys, Slack, the runner switch) is optional, same as Docker.
+4. Open the add-on's **Web UI** (or find Octopus in the HA sidebar —
+   Ingress is on by default) and log in as `admin` / whatever you set.
 
 ## Test
 

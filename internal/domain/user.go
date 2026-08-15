@@ -2,8 +2,10 @@ package domain
 
 import "time"
 
-// User is the v1 admin account, seeded from config.yaml rather than a
-// signup flow (PLAN.md Key Design Decision 23).
+// User is the v1 admin account, seeded from the server's own static config
+// (octopus.yaml when run from source, environment variables when run via
+// Docker/the HA add-on — see docker-entrypoint.sh) rather than a signup
+// flow (PLAN.md Key Design Decision 23).
 type User struct {
 	ID           string
 	Username     string

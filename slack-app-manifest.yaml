@@ -6,7 +6,7 @@
 # Only the signing secret is required by the current implementation —
 # internal/gateway verifies every request with it (slack_verify.go) and
 # posts review cards back via each interaction's own response_url, which
-# needs no additional OAuth scope. `bot_token` exists in config.example.yaml
+# needs no additional OAuth scope. `bot_token` exists in octopus.example.yaml
 # for a future chat.postMessage-based notifier but nothing calls it yet;
 # don't bother issuing one until something in the code actually uses it.
 display_information:
