@@ -1,32 +1,32 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"html/template"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"octopus/internal/agents"
+	"octopus/internal/agents/echo"
 	"octopus/internal/config"
+	"octopus/internal/domain"
+	"octopus/internal/gateway"
+	"octopus/internal/runnerhub"
+	"octopus/internal/scheduler"
+	"octopus/internal/store"
+	"octopus/internal/tools"
+	"octopus/internal/web"
 )
 
 // Version is overridden at build time via -ldflags "-X main.Version=x.y.z",
 // kept in sync with the repo-root VERSION file (see PLAN.md §9). "dev"
 // covers plain `go run`/`go build` with no ldflags.
 var Version = "dev"
-
-var helloTmpl = template.Must(template.New("hello").Parse(`<!doctype html>
-<html>
-<head><title>Octopus</title></head>
-<body>
-<h1>Octopus is running.</h1>
-<p>Status: {{.Status}} (v{{.Version}})</p>
-</body>
-</html>
-`))
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "hash-password" {
@@ -44,14 +44,127 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", handleHealthz)
-	mux.HandleFunc("/", handleHello)
+	st, err := store.New(cfg.Store.DSN, cfg.Auth.AdminUsername, cfg.Auth.AdminPasswordHash)
+	if err != nil {
+		log.Fatalf("store: %v", err)
+	}
+	defer st.Close()
+
+	reg := agents.NewRegistry()
+	reg.Register("echo", echo.New)
+
+	cloneCacheDir := cfg.Git.CloneCacheDir
+	if cloneCacheDir == "" {
+		cloneCacheDir = "./data/clones"
+	}
+
+	sched := scheduler.New(st, reg.Create)
+	sched.BranchPattern = cfg.Git.BranchPattern
+
+	var hub *runnerhub.Hub
+	var dispatcher domain.JobDispatcher
+	if cfg.Runner.Enabled {
+		hub = runnerhub.New(st)
+		// The moment a runner connects, retry every run that's been
+		// sitting AWAITING_RUNNER for one of the projects it serves —
+		// otherwise "resumes automatically" would require a human to
+		// notice and retry (PLAN.md Phase 7).
+		hub.OnRunnerConnected = func(projectIDs []string) {
+			resumeAwaitingRunner(context.Background(), sched, st, projectIDs)
+		}
+		dispatcher = hub
+		slog.Info("runner protocol enabled", "endpoint", "/runner/connect")
+	} else {
+		dispatcher = tools.NewLocalDispatcher(cloneCacheDir)
+	}
+	sched.Dispatcher = dispatcher
+
+	agents.RegisterCLIPresets(reg, agents.PresetConfig{
+		Dispatcher:      dispatcher,
+		Store:           st,
+		AnthropicAPIKey: cfg.Agents.AnthropicAPIKey,
+		OpenAIAPIKey:    cfg.Agents.OpenAIAPIKey,
+		GeminiAPIKey:    cfg.Agents.GeminiAPIKey,
+	})
+
+	if err := sched.ResumeActive(context.Background()); err != nil {
+		log.Fatalf("resuming active runs: %v", err)
+	}
+
+	srv := &web.Server{Store: st, Scheduler: sched, Registry: reg}
+	if hub != nil {
+		srv.Hub = hub
+	}
+	mux := srv.Routes()
+
+	if hub != nil {
+		mux.HandleFunc("GET /runner/connect", hub.HandleConnect)
+	}
+
+	if cfg.Slack.SigningSecret != "" {
+		webBaseURL := cfg.Web.BaseURL
+		if webBaseURL == "" {
+			webBaseURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
+		}
+		gw := gateway.New(st, sched, cfg.Slack.SigningSecret, webBaseURL)
+		gw.RegisterRoutes(mux)
+		slog.Info("slack gateway enabled")
+	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	slog.Info("octopus starting", "addr", addr, "version", Version)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, requestLogger(web.SecurityHeaders(mux))); err != nil {
 		log.Fatalf("server: %v", err)
+	}
+}
+
+// requestLogger gives every request a structured log line (method, path,
+// status, duration) — PLAN.md Phase 8's "structured logging ... on every
+// line." Handler-level errors (internal/web's serverError, the gateway,
+// runnerhub) already attach run_id/project_id where they have them; this
+// is the outer layer that covers every request uniformly, including the
+// ones that never reach a specific run.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		slog.Info("http request",
+			"method", r.Method, "path", r.URL.Path, "status", sw.status,
+			"duration_ms", time.Since(start).Milliseconds(), "remote_addr", r.RemoteAddr,
+		)
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+// resumeAwaitingRunner retries every AWAITING_RUNNER run scoped to
+// projectIDs — called right after a runner connects, so a run that's been
+// queued waiting for exactly this runner picks back up immediately instead
+// of waiting for a human to notice.
+func resumeAwaitingRunner(ctx context.Context, sched *scheduler.Scheduler, st *store.SQLiteStore, projectIDs []string) {
+	served := make(map[string]bool, len(projectIDs))
+	for _, id := range projectIDs {
+		served[id] = true
+	}
+
+	active, err := st.ListActiveRuns(ctx)
+	if err != nil {
+		slog.Error("resuming runs after runner connect: listing active runs", "error", err)
+		return
+	}
+	for _, run := range active {
+		if run.Status == domain.StatusAwaitingRunner && served[run.ProjectID] {
+			sched.ResumeRun(ctx, run.RunID)
+		}
 	}
 }
 
@@ -77,16 +190,4 @@ func runHashPassword(args []string) {
 		log.Fatalf("hashing password: %v", err)
 	}
 	fmt.Println(string(hash))
-}
-
-func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
-}
-
-func handleHello(w http.ResponseWriter, r *http.Request) {
-	data := map[string]string{"Status": "booted", "Version": Version}
-	if err := helloTmpl.Execute(w, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
 }

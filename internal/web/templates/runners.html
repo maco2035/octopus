@@ -1,0 +1,40 @@
+{{define "runners.html"}}
+<!doctype html>
+<html>
+<head>{{template "head" .}}<title>Runners — Octopus</title></head>
+<body>
+{{template "nav" .}}
+<main>
+  <p><a href="/">&larr; Projects</a></p>
+  <h1>Runners</h1>
+  <table class="runs-table">
+    <thead><tr><th>Name</th><th>Status</th><th>Projects</th><th>Last seen</th><th></th></tr></thead>
+    <tbody>
+      {{range .Runners}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{if .Connected}}<span class="status status-COMPLETED">online</span>{{else}}<span class="status status-FAILED">offline</span>{{end}}</td>
+        <td>{{range .ProjectIDs}}{{.}} {{end}}</td>
+        <td>{{if .LastSeen.IsZero}}never{{else}}{{.LastSeen.Format "2006-01-02 15:04:05"}}{{end}}</td>
+        <td>
+          <form method="post" action="/runners/{{.ID}}/revoke" class="inline-form">
+            <button type="submit" class="danger">Revoke</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">No runners registered yet.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <form method="post" action="/runners" class="card">
+    <h2>New runner</h2>
+    <label>Name<input type="text" name="name" required placeholder="aashay-laptop"></label>
+    <label>Project IDs (comma-separated)<input type="text" name="project_ids" placeholder="proj1, proj2"></label>
+    <button type="submit">Generate token</button>
+  </form>
+</main>
+</body>
+</html>
+{{end}}

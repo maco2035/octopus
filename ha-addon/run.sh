@@ -12,6 +12,8 @@ SLACK_SIGNING_SECRET=$(bashio::config 'slack_signing_secret')
 BRANCH_PATTERN=$(bashio::config 'branch_pattern')
 ADMIN_USERNAME=$(bashio::config 'admin_username')
 ADMIN_PASSWORD_HASH=$(bashio::config 'admin_password_hash')
+RUNNER_ENABLED=$(bashio::config 'runner_enabled')
+WEB_BASE_URL=$(bashio::config 'web_base_url')
 
 if bashio::var.is_empty "${ADMIN_PASSWORD_HASH}"; then
     bashio::log.warning "admin_password_hash is not set — the web UI's login will have no valid credentials until you set one."
@@ -33,11 +35,15 @@ store:
   dsn: /data/octopus.db
 git:
   branch_pattern: "${BRANCH_PATTERN}"
+  clone_cache_dir: /data/clones
 web:
   enabled: true
+  base_url: "${WEB_BASE_URL}"
 auth:
   admin_username: "${ADMIN_USERNAME}"
   admin_password_hash: "${ADMIN_PASSWORD_HASH}"
+runner:
+  enabled: ${RUNNER_ENABLED}
 EOF
 
 export OCTOPUS_CONFIG="${CONFIG_PATH}"

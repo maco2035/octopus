@@ -3,7 +3,7 @@
 **Status:** Planning
 **Version:** 0.1.0 (semver — see §9. Nothing gets tagged 1.0.0 until the phases that matter for a real release are actually done.)
 **Language:** Go (central server + `octopus-runner` agent binary) + server-rendered HTML/htmx + vanilla JS (web UI, no frontend build step)
-**Purpose:** A control plane that runs multi-model AI agent pipelines (e.g. Gemini for drafting, Claude for review, Codex for reporting) against real tickets across multiple projects, dispatches Git workflows to whichever dev machine is available, and gates progress behind human review via Slack/Discord or the web UI.
+**Purpose:** A control plane that orchestrates real agentic coding CLIs (Claude Code, Codex CLI, Gemini CLI) against real tickets across multiple projects — the central server decides what needs to happen next and dispatches it to whichever dev machine can do the work, with the coding tool itself doing the actual reading/editing/testing in the real checkout, not a hand-rolled API loop — and gates progress behind human review via Slack/Discord or the web UI.
 
 This doc is meant to live at the root of a fresh repo as `PLAN.md` and be handed to Claude Code as the source of truth for implementation order. Each phase is scoped to be doable in one sitting and independently testable.
 
@@ -16,20 +16,24 @@ This doc is meant to live at the root of a fresh repo as `PLAN.md` and be handed
 - Pipelines are a **DAG**, not a fixed sequence: independent nodes can run **in parallel** (e.g. a linter agent and a security agent firing at once), while dependent nodes wait on their upstream nodes.
 - **Web UI lets you drag and drop agent nodes onto a canvas**, wire them into a DAG (including parallel branches), and save that as a reusable pipeline definition per project.
 - **Multiple projects (repos) run concurrently** — each project has its own pipeline definition(s) and its own in-flight runs; working on project A doesn't block project B.
-- **One central server holds all state and orchestration logic; git/shell work is dispatched to a lightweight `octopus-runner` process installed on each dev machine.** Runners connect *outbound* to the server (like a self-hosted CI runner) — no inbound networking or port-forwarding needed on a laptop. You never have to think about "which machine is the server" — that's one fixed, always-on host; your dev machines just come and go as runners.
+- **One central server holds all state and orchestration logic; the actual work is dispatched to a lightweight `octopus-runner` process installed on each dev machine.** Runners connect *outbound* to the server (like a self-hosted CI runner) — no inbound networking or port-forwarding needed on a laptop. You never have to think about "which machine is the server" — that's one fixed, always-on host; your dev machines just come and go as runners.
+- **Agent nodes that need to actually work in a codebase delegate to a real agentic CLI running on the runner — Claude Code, Codex CLI, or Gemini CLI — instead of Octopus reimplementing a read/edit/test/iterate loop centrally.** The central server's job is to decide *what* needs to happen next and hand it off; the CLI tool is the one actually reading files, writing code, and running tests, in the real checkout, with the real toolchain — the same way a human (or you, right now, using Claude Code to build this) would.
+- **Related work can share context instead of starting cold every time.** A new run can be started as a continuation of a previous one, resuming the same coding-agent session (`--resume`) rather than re-explaining everything from scratch — this is what makes "carry context between multiple things to do" actually work.
+- **Skills and per-project tool config travel with the repo, not with Octopus.** A project's own checked-in `.claude/skills/` (or equivalent) is picked up automatically, because the CLI tool runs for real inside that checkout — Octopus doesn't need its own skill-distribution mechanism.
 - Since real work syncs through GitHub already (branches cut from a release line, pushed, merged), Octopus doesn't invent its own locking between machines/people — a runner just fetches, branches, commits, and pushes like a human would.
 - **Every run gets its own git branch, created automatically before any agent node executes.** No agent ever picks a branch name — the engine has a runner cut it off the base branch as an implicit first step, and every git operation for that run is locked to that branch. Nothing gets built in an ad hoc location.
 - **Any node can be a human review gate, not just a final merge step.** A pipeline builder can flag a node "pause for review." When that node finishes, the run halts and its output (e.g. a plan, a draft, a diff) is shown in the web UI for editing — a human can fix it up and continue the pipeline from there, or approve as-is via Slack.
-- **All output is centralized, no matter which machine ran it.** Git/shell work executed by a remote runner streams its full output back to the central server and is stored with the run — logs, diffs, and node outputs are always visible from one place (web UI or Slack), regardless of which dev machine did the work.
-- **A runner that loses its connection mid-job doesn't lose the work.** If a laptop goes offline (bad signal, closed lid, a train tunnel) while it's already executing a git job, it keeps working from local state and queues its result durably until it can reach the server again — nothing gets re-done or dropped. Starting a *brand-new* pipeline still needs a connection (to the scheduler and to the AI provider APIs), so agent nodes simply wait for connectivity like any other queued step — no offline LLM fallback in v1.
-- Survive a process restart at any point mid-pipeline, including mid-parallel-fanout and mid-review-pause — state must be durable, not goroutine-local.
+- **All output is centralized, no matter which machine ran it.** Work executed by a remote runner — git operations or a full coding-CLI session — streams its full output back to the central server and is stored with the run — logs, diffs, and node outputs are always visible from one place (web UI or Slack), regardless of which dev machine did the work.
+- **A runner that loses its connection mid-job doesn't lose the work.** If a laptop goes offline (bad signal, closed lid, a train tunnel) while it's already executing a job — including a long-running coding-agent session — it keeps working from local state and queues its result durably until it can reach the server again — nothing gets re-done or dropped. Starting a *brand-new* pipeline still needs a connection (to the scheduler and to the AI provider APIs), so agent nodes simply wait for connectivity like any other queued step — no offline LLM fallback in v1.
+- Survive a process restart at any point mid-pipeline, including mid-parallel-fanout, mid-review-pause, and mid-coding-session — state must be durable, not goroutine-local.
 - Make it hard to accidentally merge unreviewed code or let an unauthenticated request/runner trigger work.
-- Keep agents pluggable via a registry: adding a new agent type means writing one file and registering it — the web UI then lists it as a draggable node automatically, no further app code changes.
+- **Keep agents pluggable via a registry** — but most registered types are thin *presets* over one generic CLI-dispatching implementation (which tool, which role prompt), not a hand-written Go package per provider. Adding a new preset means registering one factory call, not writing new dispatch logic; the web UI lists whatever's registered as a draggable node automatically.
 - Data model leaves room for **more than one person** using Octopus eventually (e.g. an `owner` field on projects/runs), without building full multi-tenancy now.
 - **The web UI requires a real login.** Because the central server is meant to be reachable from wherever you are (a laptop at a cafe, not just your home network), "no auth, rely on the network boundary" is no longer good enough on its own. Session-based login with a hashed password is a v1 requirement, not deferred hardening.
 - **Releases follow semver, starting at 0.1.0.** See §9.
 
 **Non-goals (for v1)**
+- **No custom reimplementation of an agentic read/edit/test loop.** That's exactly what Claude Code / Codex CLI / Gemini CLI already are — Octopus dispatches to them and waits for a result, it doesn't rebuild a worse version of them centrally.
 - No full multi-tenant / cross-org isolation, no self-serve signup — single team, single Slack workspace, shared database, a small fixed set of accounts. Schema is forward-compatible with multiple people (`Project.Owner`), but there's no per-project access control yet — anyone logged in can see/do everything.
 - No distributed consensus / leaderless coordination between machines. There is exactly one central brain (the server); runners are dumb, replaceable, stateless workers. If you want "no single machine matters," that's solved by hosting the server somewhere reliable (in your case, the always-on Home Assistant box) — not by making every machine a peer.
 - **Octopus does not terminate TLS itself.** Login only happens over HTTPS, but Octopus expects whatever's in front of it to provide that — HA Ingress (+ Nabu Casa/HA Cloud remote access, or your own reverse proxy) when running as the add-on, or your own reverse proxy/tunnel for the generic Docker image. Serving a login form over plain HTTP on the public internet is not an acceptable v1 configuration.
@@ -44,10 +48,12 @@ This is one real, supported layout — worth writing down explicitly since it's 
 | Machine | Role | Runs | Configured with |
 |---|---|---|---|
 | Home Assistant server (remote, always-on) | **Central brain** | `octopus` server: scheduler, DAG engine, SQLite store, web UI, Slack gateway — packaged as the `ha-addon/` add-on | All AI provider API keys (Gemini/Claude/OpenAI/xAI), Slack credentials, the admin login, `branch_pattern` — all via the add-on's Configuration tab |
-| Dev machine (this one) | **Runner** | `octopus-runner` only | A runner token (minted from the web UI) + normal local git/GitHub credentials (SSH key or PAT) for push access. **No AI provider keys.** |
+| Dev machine (this one) | **Runner** | `octopus-runner`, plus whichever coding CLIs it's expected to serve (`claude`, `codex`, `gemini`, installed and logged in/configured like any normal dev tool) | A runner token (minted from the web UI) + normal local git/GitHub credentials (SSH key or PAT) for push access. **No AI provider keys stored here** — see below. |
 | Laptop at a cafe | **Client** | Nothing — just a browser | Nothing to configure; logs into the web UI over HTTPS like any other web app |
 
-The rule of thumb: if it's an AI provider key, it goes on the central brain. If it's a git/GitHub credential, it goes on whichever machine is acting as a runner. A pure client machine (the cafe laptop) never has any Octopus config on it at all — it's not running any Octopus process, just a browser tab.
+The rule of thumb: if it's an AI provider key, it's *managed* on the central brain. If it's a git/GitHub credential, it goes on whichever machine is acting as a runner. A pure client machine (the cafe laptop) never has any Octopus config on it at all — it's not running any Octopus process, just a browser tab.
+
+**Where the AI key actually executes is more nuanced than "central brain only," though.** When a node needs a coding CLI to do real work, the central server dispatches that job to a runner *with the relevant API key included in that job's payload* — used only as an ephemeral environment variable for that one subprocess invocation, never written to the runner's disk or config. The key is still centrally *managed* (rotated, configured, never checked into the runner's own files) even though it's momentarily *used* on the runner. This is the resolution to "does Claude run on the dev machine or the server" — the decision of *what to do* is made centrally; the actual *doing* (reading code, editing, testing) happens on the runner, using a key handed to it just for that job.
 
 You can run more than one runner (e.g. this dev machine today, another machine later) — each gets its own runner token and can serve the same or different projects (Key Design Decision 14).
 
@@ -69,18 +75,23 @@ These are fixes/extensions to the original sketch, decided up front so Claude Co
 10. **Web UI is server-rendered Go templates + htmx**, with a small vendored vanilla-JS library (e.g. SortableJS) for the drag-and-drop canvas interactions. No React/Vue/SPA build step — stays inside the Go module/binary.
 11. **Scheduler manages concurrent runs.** Each pipeline run executes in its own goroutine tracked by a `Scheduler`; within a run, each DAG "level" (nodes whose deps are all satisfied) executes concurrently via `errgroup.Group`, then the engine advances to the next level.
 12. **`Project` is a first-class entity** (id, name, git remote URL, base_branch, nullable `owner`) — every pipeline def and run is scoped to a project. This is what "multiple projects at once" hangs off of.
-13. **Every run auto-creates its branch before any node runs.** The engine's first action on a new run is a `prepare_branch` git job (fetch `base_branch`, create `<branch_pattern>`, default `octopus/{ticket_id}`) dispatched to a runner. The resulting branch name is stored on `PipelineState.GitBranch` and every later git job for that run references it — agents never choose a branch.
-14. **Git/shell work is dispatched to runners over an outbound connection, not executed by the server itself.** `octopus-runner` (a separate small binary) runs on each dev machine, opens a persistent outbound connection to the server, authenticates with a per-runner token, and declares which project IDs it can do git work for. The server never needs to reach into a dev machine's network.
-15. **No runner online is not a failure.** If a run needs a git job and no runner is currently connected for that project, the run's status becomes `AWAITING_RUNNER` (queued, not failed) and resumes automatically the moment a matching runner reconnects. Laptops closing is an expected, ordinary state, not an error path.
-16. **Runner job results carry full output, not just success/fail.** Every `GitJobResult` includes stdout/stderr, persisted on the run. This is what makes logs "come up to the main person" regardless of which machine actually ran the git command — the web UI and Slack always show the same central record.
-17. **Runners keep a small local durable queue.** `octopus-runner` persists in-progress and unsent-result jobs to its own local SQLite file (`~/.octopus/runner.db`, separate from the server's DB). If the connection to the server drops mid-job, the runner keeps executing against local state (a git commit doesn't need the server's help) and queues the result. On reconnect it flushes everything it's queued; the server dedupes by `GitJob.ID` so a redelivered result is a safe no-op, never a double-apply.
+13. **Every run auto-creates its branch before any node runs.** The engine's first action on a new run is a `prepare_branch` job (fetch `base_branch`, create `<branch_pattern>`, default `octopus/{ticket_id}`) dispatched to a runner. The resulting branch name is stored on `PipelineState.GitBranch` and every later job for that run references it — agents never choose a branch.
+14. **Work is dispatched to runners over an outbound connection, not executed by the server itself.** `octopus-runner` (a separate small binary) runs on each dev machine, opens a persistent outbound connection to the server, authenticates with a per-runner token, and declares which project IDs it can do work for. The server never needs to reach into a dev machine's network.
+15. **No runner online is not a failure.** If a run needs a job and no runner is currently connected for that project, the run's status becomes `AWAITING_RUNNER` (queued, not failed) and resumes automatically the moment a matching runner reconnects. Laptops closing is an expected, ordinary state, not an error path.
+16. **Runner job results carry full output, not just success/fail.** Every `GitJobResult` includes stdout/stderr, persisted on the run. This is what makes logs "come up to the main person" regardless of which machine actually did the work — the web UI and Slack always show the same central record.
+17. **Runners keep a small local durable queue.** `octopus-runner` persists in-progress and unsent-result jobs to its own local SQLite file (`~/.octopus/runner.db`, separate from the server's DB). If the connection to the server drops mid-job, the runner keeps executing against local state (a git commit — or a coding-agent session — doesn't need the server's help to keep going) and queues the result. On reconnect it flushes everything it's queued; the server dedupes by `GitJob.ID` so a redelivered result is a safe no-op, never a double-apply.
 18. **`push` retries locally with backoff instead of failing.** It's the one git step that inherently needs a live connection (to GitHub, not to the Octopus server). A runner mid-push when connectivity drops just keeps retrying with backoff on its own until it succeeds — it doesn't need the central server's involvement to do that, and the job isn't marked failed just because a network blip happened.
-19. **The server persists outstanding dispatched jobs too, not just the runner.** A `GitJob` the server has sent but hasn't gotten a `GitJobResult` for yet is saved via `SaveGitJob` before dispatch. If the server itself restarts while a job is in flight (runner offline, job mid-retry, whatever), `runnerhub` reloads pending jobs via `LoadPendingGitJobs` on boot and keeps waiting for their results — a late-arriving `GitJobResult` is matched by `GitJob.ID` and applied correctly even if the server restarted in between. Checkpointing covers completed nodes; this covers nodes that are dispatched but not yet resolved.
+19. **The server persists outstanding dispatched jobs too, not just the runner — and won't dispatch a duplicate.** A `GitJob` the server has sent but hasn't gotten a `GitJobResult` for yet is saved via `SaveGitJob` before dispatch. If the server restarts while a job is in flight (runner offline, a coding session still running, whatever), `runnerhub` reloads pending jobs via `LoadPendingGitJobs` on boot and keeps waiting for their results — a late-arriving `GitJobResult` is matched by `GitJob.ID` and applied correctly even if the server restarted in between. Just as important: when a node's `Execute` re-runs after a restart, it must check the store for an already-dispatched-but-unresolved job for that `(run_id, node_id)` **before** dispatching a new one — otherwise a resumed run could kick off a second, duplicate coding-agent session instead of just waiting on the first one's result.
 20. **Every git job fetches before acting and pushes after mutating — handoff between machines always goes through GitHub, never through assuming one runner stays assigned to a run.** `prepare_branch` pushes the new (even empty) branch immediately so it's visible on GitHub right away. This matters because the runner that handles a run's first job isn't guaranteed to be the one that handles its next job — if runner A creates a branch and goes offline, and runner B (also registered for that project) picks up the following job, B needs to be able to `git fetch` and see exactly what A already pushed.
 21. **A runner's local clone is scoped per `(project_id, run_id)`, not per project.** Two concurrent runs against the same project (two different tickets) landing on the same runner must not share one working directory — each run gets its own clone/worktree under `clone_cache_dir/<project_id>/<run_id>`, so simultaneous runs never clobber each other's checkout.
 22. **Session-based login gates the web UI.** `/login` checks a username against a bcrypt password hash and, on success, issues a signed, httpOnly, `Secure` session cookie; a server-side `Session` row (not just a signed cookie) makes logout and revocation real rather than "wait for expiry." Every web UI route requires a valid session. `/healthz`, `/api/slack/*` (their own signature verification), and the runner connect endpoint (its own token auth) are exempt by design — those are service-to-service traffic, not a human in a browser, and must keep working without a login session.
 23. **v1 ships with one configured admin account, not a signup flow.** `admin_username` and `admin_password_hash` are set via `config.yaml` / the HA add-on's Configuration tab (a small `octopus hash-password` CLI helper generates the hash so a plaintext password never sits in config or logs). This is deliberately the smallest thing that satisfies "real login" — a full `User` table with self-serve accounts can build on the same `Project.Owner` forward-compat field later without a redesign, once "more than one person" actually happens.
-24. **Grok (xAI) joins Gemini/Claude/OpenAI as a fourth supported agent provider.** Same treatment as the others: an API key in `agents.xai_api_key`, wired up behind the agent registry in Phase 6 — no special-casing.
+24. **Grok (xAI) joins Gemini/Claude/OpenAI as a fourth supported agent provider.** Same treatment as the others: an API key in `agents.xai_api_key`.
+25. **Coding/review/report work is delegated to a real agentic CLI on the runner, not a hand-rolled central tool loop.** A `NodeDef` whose `AgentType` is a CLI preset (e.g. a "Claude coder," a "Codex reviewer") runs by dispatching a `run_agent` job — the runner invokes the actual CLI binary (`claude`, `codex`, `gemini`) non-interactively in the run's real checkout, with a role-specific prompt, and lets it do its normal autonomous read/edit/run-tests/iterate loop. The central server isn't in that loop step-by-step; it just waits for the job to finish.
+26. **Skills and tool config live in the project's repo, not in Octopus.** Since the CLI runs for real in the checkout, whatever that project has checked into `.claude/skills/` (or the equivalent for other tools) is picked up automatically. Skills you want available across *every* project the tool touches are a one-time setup on the runner's own CLI config, not something Octopus pushes per job.
+27. **Coding sessions carry context via a `SessionID`.** `PipelineState.SessionID` (and `GitJobResult.SessionID` on the way back) tracks whichever session the CLI tool is using; a new run started as an explicit continuation of a previous one seeds its `SessionID` from that prior run before its first coding node executes, so the tool resumes the same conversation (`--resume`) instead of starting cold.
+28. **AI provider keys reach a `run_agent` job's runner only as a per-invocation environment variable, never as a stored credential.** The key travels inside that one job's payload, over the runner's already-authenticated connection, used for the duration of that subprocess only. This is what lets Key Design Decision 24's "no AI provider keys on the dev machine" hold even though the CLI tool that needs one runs there.
+29. **A runner needs the relevant CLI installed to serve `run_agent` jobs for a project — that's a runner-side prerequisite, not something Octopus provisions.** With a single runner this is a non-issue (install what you need once); if/when multiple runners exist, routing `run_agent` jobs only to capable ones is a natural extension (a `Runner.Capabilities` list) to add when that need actually arrives, not built speculatively now.
 
 ---
 
@@ -115,7 +126,7 @@ octopus/
 │   │   ├── agent.go            # Agent interface
 │   │   ├── project.go          # Project
 │   │   ├── pipeline_def.go     # NodeDef, EdgeDef, PipelineDef (the DAG)
-│   │   ├── state.go            # PipelineState (a run)
+│   │   ├── state.go            # PipelineState (a run) — includes SessionID
 │   │   ├── runner.go           # Runner, GitJob, GitJobResult
 │   │   └── status.go           # Status enum (typed, not raw strings)
 │   ├── engine/
@@ -125,15 +136,16 @@ octopus/
 │   ├── scheduler/
 │   │   └── scheduler.go        # runs multiple pipeline runs concurrently across projects
 │   ├── runnerhub/
-│   │   └── hub.go              # server-side: tracks connected runners, dispatches GitJobs, awaits results
+│   │   └── hub.go              # server-side: tracks connected runners, dispatches GitJobs, awaits results — implements agents.JobDispatcher
 │   ├── store/
 │   │   ├── store.go            # Store interface
 │   │   └── sqlite.go           # SQLite implementation (WAL mode)
 │   ├── agents/
 │   │   ├── registry.go         # agent_type -> constructor
-│   │   ├── gemini/coder.go
-│   │   ├── claude/security.go
-│   │   └── codex/reporter.go
+│   │   ├── dispatch.go         # JobDispatcher interface — the one thing a CLI-backed agent depends on
+│   │   ├── cliagent/
+│   │   │   └── cliagent.go     # generic Agent: dispatches a run_agent job for whichever tool+prompt it's configured with
+│   │   └── presets.go          # registers named presets (e.g. "claude-coder", "codex-reviewer") over cliagent, each just fixing tool + role prompt
 │   ├── gateway/
 │   │   ├── slack.go
 │   │   ├── slack_verify.go     # signature verification middleware
@@ -143,7 +155,9 @@ octopus/
 │   │   └── api.go              # JSON endpoints the UI's JS calls (save DAG, list agent types, run/review actions)
 │   ├── tools/
 │   │   ├── git.go              # actual git command execution — used server-side (Phase 6) and by octopus-runner (Phase 7)
-│   │   └── shell.go
+│   │   ├── shell.go
+│   │   ├── cli_invoke.go       # runs a coding CLI non-interactively in a working dir, captures output + session id
+│   │   └── localdispatch.go    # Phase 6's JobDispatcher: runs a job directly on the server, no runner protocol involved yet
 │   └── config/
 │       └── config.go
 ├── web/
@@ -189,7 +203,7 @@ type Project struct {
 // domain/pipeline_def.go — the DAG a user builds in the web UI
 type NodeDef struct {
     ID             string
-    AgentType      string         // looked up in the agent registry
+    AgentType      string         // looked up in the agent registry — usually a cliagent preset
     Config         map[string]any
     RequiresReview bool           // if true, engine pauses after this node until a human continues it
 }
@@ -213,7 +227,8 @@ type PipelineState struct {
     ProjectID     string
     PipelineDefID string
     TicketID      string
-    GitBranch     string         // set once before any node runs; every git job is scoped to this
+    GitBranch     string         // set once before any node runs; every job is scoped to this
+    SessionID     string         // coding-agent session to resume; seeded from a prior run when this one is an explicit continuation
     Status        Status
     PendingNodeID string         // set when Status == StatusAwaitingReview
     ActionToken   string         // one-time token for approve/edit-continue/reject
@@ -228,7 +243,7 @@ const (
     StatusPending        Status = "PENDING"
     StatusRunning        Status = "RUNNING"
     StatusBlocked        Status = "BLOCKED"           // security node halted it
-    StatusAwaitingRunner Status = "AWAITING_RUNNER"    // a git job is queued, no connected runner for this project yet
+    StatusAwaitingRunner Status = "AWAITING_RUNNER"    // a job is queued, no connected runner for this project yet
     StatusAwaitingReview Status = "AWAITING_REVIEW"    // paused at a node flagged RequiresReview
     StatusRejected       Status = "REJECTED"           // a human rejected at a review gate
     StatusCompleted      Status = "COMPLETED"
@@ -241,23 +256,26 @@ type Runner struct {
     ID         string
     Name       string    // hostname or user-given label
     TokenHash  string    // shared secret, hashed at rest, generated from the web UI
-    ProjectIDs []string  // which projects this runner can do git work for
+    ProjectIDs []string  // which projects this runner can do work for
     LastSeen   time.Time
 }
 
+// GitJob's name predates Type including non-git work (run_agent) — kept as
+// the name Phase 2 already shipped rather than churning it for a rename.
 type GitJob struct {
     ID        string
     RunID     string
     ProjectID string
-    Type      string // "prepare_branch" | "diff" | "apply_patch" | "commit" | "push" | "merge" | "shell_exec"
-    Payload   map[string]any
+    Type      string // "prepare_branch" | "run_agent" | "diff" | "apply_patch" | "commit" | "push" | "merge" | "shell_exec"
+    Payload   map[string]any // for run_agent: {"tool": "claude"|"codex"|"gemini", "prompt": "...", "session_id": "...", "api_key": "..."}
 }
 
 type GitJobResult struct {
-    JobID   string
-    Success bool
-    Output  string // full stdout/stderr — persisted centrally so logs are visible regardless of which machine ran it
-    Error   string
+    JobID     string
+    Success   bool
+    Output    string // full stdout/stderr — persisted centrally so logs are visible regardless of which machine ran it
+    Error     string
+    SessionID string // set for run_agent jobs: the session to pass as session_id on the next invocation that should continue this conversation
 }
 
 // domain/user.go
@@ -278,6 +296,15 @@ type Registry interface {
     Register(agentType string, factory func(cfg map[string]any) (domain.Agent, error))
     Create(agentType string, cfg map[string]any) (domain.Agent, error)
     ListTypes() []string // powers the web UI's drag-and-drop palette
+}
+
+// agents/dispatch.go — the one dependency a cliagent (or a git-tool agent)
+// needs. Phase 6's tools.LocalDispatcher and Phase 7's runnerhub.Hub both
+// implement this identically from the agent's point of view — swapping
+// from local execution to real remote dispatch is a wiring change in
+// main.go, not a code change in cliagent.go.
+type JobDispatcher interface {
+    Dispatch(ctx context.Context, job *domain.GitJob) (*domain.GitJobResult, error)
 }
 
 // store/store.go
@@ -305,6 +332,7 @@ type Store interface {
 
     SaveGitJob(ctx context.Context, job *domain.GitJob) error               // called before dispatch, so it survives a server restart
     LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob, error)       // reloaded by runnerhub on boot
+    LoadPendingGitJobFor(ctx context.Context, runID, nodeID string) (*domain.GitJob, error) // Key Design Decision 19: check before dispatching a new one
     ResolveGitJob(ctx context.Context, jobID string, result *domain.GitJobResult) error // idempotent by jobID
 
     LoadUserByUsername(ctx context.Context, username string) (*domain.User, error)
@@ -349,7 +377,7 @@ type Store interface {
 - Pages: project list/create, pipeline editor (the canvas), run status/log view (polls or uses htmx SSE/polling for live updates), and a **review-gate view**: shows the pending node's output in an editable form with Approve / Edit & Continue / Reject actions.
 - `/api/agent-types` lists registry contents for the drag-and-drop palette. A node's `RequiresReview` flag is a checkbox in the editor.
 - `canvas.js` (vendored SortableJS + hand-rolled edge-drawing) lets you place nodes, connect them into a DAG (including a parallel branch), and save — POSTs a `PipelineDef` JSON to `internal/web/api.go`, persisted through the `Store`.
-- A "Run" button on a project triggers the scheduler against that project's saved `PipelineDef`.
+- A "Run" button on a project triggers the scheduler against that project's saved `PipelineDef`. A "Continue as new run" action on a finished run's page seeds a new run's `SessionID` from it.
 - Unit test: an unauthenticated request to any UI page redirects to `/login`; a valid session reaches it; an expired/deleted session does not.
 - **Done when:** you can open the UI, log in, build a 3-node pipeline with one parallel branch and one review gate by dragging, save it, hit Run, watch it pause at the review gate, edit the output, continue, and see it finish — and confirm logging out actually revokes access, not just hides the UI client-side.
 
@@ -359,19 +387,23 @@ type Store interface {
 - `/api/slack/action` → verifies signature, looks up `action_token`, marks it used, calls `ResolveReview`.
 - **Done when:** a real Slack app (dev workspace) can trigger a run end to end, including a mid-pipeline review gate and a final approve, each working exactly once.
 
-### Phase 6 — Real agents + local git tools (single machine)
-- Swap `EchoAgent`s for `gemini.CoderAgent`, `claude.SecurityAgent`, `codex.ReporterAgent`, registered in the agent registry, each behind real API clients.
-- Security agent can set `StatusBlocked`; engine short-circuits and notifies (Slack and/or UI) with the block reason instead of a review card.
-- `internal/tools/git.go` implements `prepare_branch`, `diff`, `apply_patch`, `commit`, `push`, `merge` against a real local clone. The engine calls these **directly** (server executes its own git jobs in this phase — no runner dispatch yet, to isolate agent-logic bugs from networking bugs). Every job type fetches latest before acting and pushes after mutating (even on a single machine, to keep the behavior identical once Phase 7 adds real handoff between machines); `prepare_branch` pushes the new branch immediately rather than leaving it local-only.
-- Every run's first step is the implicit `prepare_branch` job; `PipelineState.GitBranch` is set from it and all later git tool calls use it. The working clone lives at `clone_cache_dir/<project_id>/<run_id>` — scoped per run, not per project, so concurrent runs never share a checkout.
-- **Done when:** a real ticket ID, built via a UI-designed pipeline or Slack command, produces a real branch (auto-created), a real diff, a real security note, and a real merge on approval — all on one machine.
+### Phase 6 — Real agents: CLI-delegated coder/reviewer/reporter + local git tools (single machine)
+- `internal/agents/cliagent/cliagent.go`: one `Agent` implementation, constructed with a `JobDispatcher`, a tool name, and a role prompt template. `Execute` builds a `run_agent` `GitJob` (prompt filled in from ticket/state context, `session_id` from `state.SessionID` if resuming), calls `Dispatch`, and on success writes the result's `Output` into `state.NodeOutputs[node.ID]` and its `SessionID` into `state.SessionID`.
+- `internal/agents/presets.go` registers a handful of named presets over `cliagent` — e.g. a Claude-backed coder, a Codex-backed reviewer, a reporter — each just fixing which tool and which role prompt to use. This is what shows up in the drag-and-drop palette; there's no separate Go package per provider anymore.
+- `internal/tools/localdispatch.go`: Phase 6's `JobDispatcher` — runs a job **directly on the server** (no runner protocol yet, to isolate agent-logic bugs from networking bugs). For `run_agent`, `internal/tools/cli_invoke.go` shells out to the named CLI binary non-interactively in the run's working directory, captures stdout/stderr and whatever session id the tool reports, then runs `git add -A && git commit` + `push` (reusing `git.go`, same fetch-before/push-after discipline as every other job type) so the result lands on the branch.
+- Security agent (a `cliagent` preset, or a plainer direct-API call if it turns out not to need repo access) can set `StatusBlocked`; engine short-circuits and notifies (Slack and/or UI) with the block reason instead of a review card.
+- `internal/tools/git.go` implements `prepare_branch`, `diff`, `apply_patch`, `commit`, `push`, `merge` against a real local clone.
+- Every run's first step is the implicit `prepare_branch` job; `PipelineState.GitBranch` is set from it and all later jobs use it. The working clone lives at `clone_cache_dir/<project_id>/<run_id>` — scoped per run, not per project, so concurrent runs never share a checkout.
+- Before dispatching a `run_agent` job, `cliagent.Execute` checks `LoadPendingGitJobFor(runID, nodeID)` first — if an unresolved job is already there (this node re-running after a restart), it awaits that one instead of starting a second coding session.
+- **Done when:** a real ticket ID, built via a UI-designed pipeline or Slack command, produces a real branch (auto-created), a real Claude Code (or Codex/Gemini CLI) session that actually edits files and runs tests in the checkout, a real diff, a real security note, and a real merge on approval — all on one machine. A second run started as a continuation of the first resumes the same coding session rather than starting cold.
 
 ### Phase 7 — Runner protocol (multi-machine dispatch)
-- `cmd/octopus-runner/main.go`: reads `runner.example.yaml`-style config (server URL, runner token, which project IDs it serves), opens a persistent outbound connection (WebSocket) to the server, and executes dispatched `GitJob`s using the *same* `internal/tools/git.go` code from Phase 6.
-- `internal/runnerhub/hub.go` (server-side): tracks connected runners and their declared projects, routes each project's `GitJob`s to any available connected runner for that project, awaits `GitJobResult`. Every dispatched job is written via `SaveGitJob` first; on boot, `hub.go` calls `LoadPendingGitJobs` and rebuilds its outstanding-job table so a server restart doesn't orphan a job a runner is still working on.
+- `cmd/octopus-runner/main.go`: reads `runner.example.yaml`-style config (server URL, runner token, which project IDs it serves), opens a persistent outbound connection (WebSocket) to the server, and executes dispatched `GitJob`s using the *same* `internal/tools/git.go` and `cli_invoke.go` code from Phase 6.
+- `internal/runnerhub/hub.go` (server-side): implements `agents.JobDispatcher` for real — tracks connected runners and their declared projects, routes each project's `GitJob`s (including `run_agent`) to any available connected runner for that project, awaits `GitJobResult`. Every dispatched job is written via `SaveGitJob` first; on boot, `hub.go` calls `LoadPendingGitJobs` and rebuilds its outstanding-job table so a server restart doesn't orphan a job a runner is still working on. Swapping Phase 6's `LocalDispatcher` for `hub.go` here is purely a wiring change in `main.go` — `cliagent.go` doesn't change.
 - If no runner is connected for a project when a job is ready, the run's status becomes `AWAITING_RUNNER` and the job stays queued — dispatched automatically the moment a matching runner connects.
 - `GitJobResult.Output` (full stdout/stderr) is persisted on the run via `ResolveGitJob`, visible in the web UI/Slack exactly like Phase 6's local output. `ResolveGitJob` is idempotent by `jobID`, so a result redelivered after a server restart or a runner retry is a safe no-op.
 - Runner tokens are generated/revoked from the web UI (a simple "Runners" admin page), hashed at rest, checked on connect.
+- For `run_agent` jobs specifically, the API key needed by that invocation rides along in the job payload (Key Design Decision 28) — the runner sets it as an env var for the CLI subprocess only, never writes it to `runner.example.yaml` or anywhere else on disk.
 - `localqueue.go`: every received job is written to the runner's local SQLite before execution starts; every result is written locally before the runner attempts to send it. Reconnect logic flushes any locally-queued unsent results first, then resumes normal dispatch.
 - `push` jobs specifically retry with backoff inside the runner (not surfaced as a failure to the server) until they succeed or a long timeout is hit.
 - Any runner registered for a project can pick up any job for that project's runs — a run's jobs are not pinned to whichever runner handled its first step. This only works because every job fetches before acting and pushes after mutating (Key Design Decision 20); test this explicitly, not just assume it.
@@ -379,14 +411,15 @@ type Store interface {
 - Integration test 2 (offline resilience): give the runner a job, sever its connection to the hub *while the job is executing*, assert it still completes the git work locally and the result lands in `localqueue.go`; restore the connection and assert the result flushes to the server exactly once (kill and restart the runner process mid-disconnect too, to prove the queue survives a restart, not just a network blip).
 - Integration test 3 (cross-machine handoff): run two fake runners against the hub, both registered for the same project. Assert `prepare_branch` on runner A is visible (via `git fetch`) to runner B when the hub dispatches the next job to B instead of A — proves handoff doesn't depend on sticking to one machine.
 - Integration test 4 (server restart mid-job): dispatch a job, kill and restart the server process before the result arrives, assert `LoadPendingGitJobs` recovers it and the eventually-delivered `GitJobResult` still resolves the run correctly.
-- **Done when:** git tool calls work identically whether the server executes them directly (Phase 6 mode) or dispatches them to a real `octopus-runner` process running on a different machine; a runner that goes offline mid-job never loses or duplicates work; and neither a runner restart nor a server restart orphans an in-flight job.
+- Integration test 5 (no duplicate coding sessions): dispatch a `run_agent` job, restart the server before it resolves, assert the resumed node's `Execute` finds the pending job via `LoadPendingGitJobFor` and awaits it instead of dispatching a second one.
+- **Done when:** every job type — git plumbing and `run_agent` alike — works identically whether the server executes it directly (Phase 6 mode) or dispatches it to a real `octopus-runner` process running on a different machine; a runner that goes offline mid-job never loses or duplicates work; and neither a runner restart nor a server restart orphans or duplicates an in-flight job.
 
 ### Phase 8 — Hardening / polish
 - Structured logging (`slog`) with run ID and project ID on every line.
 - Rate limiting on `/api/slack/command` and the web UI's run-trigger endpoint (per-user/per-project).
-- **Explicit note:** the web UI has its own login (Phase 2/4) but still expects TLS in front of it — document that plain-HTTP exposure is never acceptable, and that running via HA **Ingress** (+ Nabu Casa/HA Cloud remote access) gets you both TLS and a second login (HA's own) for free; the raw `8080/tcp` port mapping bypasses Ingress entirely, so prefer Ingress when running that way. Runner tokens are a separate access control on the git-execution path from user login — treat them like credentials (rotate/revoke from the web UI if a machine is decommissioned). Rate limit `/login` specifically, not just the Slack/run-trigger endpoints, since it's now an internet-reachable password check.
-- Dockerfile + compose file finalized, no socket mount (the server doesn't need Docker at all now that git work happens on runners).
-- README with setup instructions, Slack app manifest, required scopes, and `octopus-runner` install/registration steps.
+- **Explicit note:** the web UI has its own login (Phase 2/4) but still expects TLS in front of it — document that plain-HTTP exposure is never acceptable, and that running via HA **Ingress** (+ Nabu Casa/HA Cloud remote access) gets you both TLS and a second login (HA's own) for free; the raw `8080/tcp` port mapping bypasses Ingress entirely, so prefer Ingress when running that way. Runner tokens are a separate access control on the execution path from user login — treat them like credentials (rotate/revoke from the web UI if a machine is decommissioned). Rate limit `/login` specifically, not just the Slack/run-trigger endpoints, since it's now an internet-reachable password check.
+- Dockerfile + compose file finalized, no socket mount (the server doesn't need Docker at all now that work happens on runners).
+- README with setup instructions, Slack app manifest, required scopes, and `octopus-runner` install/registration steps — including "install and configure whichever coding CLIs this runner will serve."
 - Revisit the `Project.Owner` field — still just a label in v1, but this is where real multi-person access control would hang later if needed.
 
 ### Phase 9 (optional) — Discord gateway, ServiceNow gateway
@@ -401,7 +434,7 @@ type Store interface {
 port: 8080
 agents:
   gemini_api_key: ${GEMINI_API_KEY}
-  anthropic_api_key: ${ANTHROPIC_API_KEY}
+  anthropic_api_key: ${ANTHROPIC_API_KEY}     # also used for Claude-backed run_agent jobs (Key Design Decision 28)
   openai_api_key: ${OPENAI_API_KEY}
   xai_api_key: ${XAI_API_KEY}       # Grok
 slack:
@@ -426,6 +459,8 @@ runner_token: ${OCTOPUS_RUNNER_TOKEN}   # generated from the web UI's Runners pa
 project_ids:
   - proj_abc123
 clone_cache_dir: ~/.octopus/clones      # runner-local; not synced anywhere. Actual checkouts live at clone_cache_dir/<project_id>/<run_id>
+# No AI provider keys here — run_agent jobs receive one ephemerally per invocation (Key Design Decision 28).
+# The runner does need the relevant CLIs (claude / codex / gemini) actually installed to serve run_agent jobs.
 ```
 
 Note: `git.repo_path` from the original draft is gone — repo location is runner-local (`clone_cache_dir`), scoped per `(project_id, run_id)` so concurrent runs never share a checkout, and `Project.GitRemoteURL` is what's shared centrally. Any runner registered for a project can pick up any job for that project's runs, not just the one that handled its first step — every job fetches before acting and pushes after mutating, so GitHub (not a particular runner's disk) is always the source of truth.
@@ -439,7 +474,8 @@ Note: `git.repo_path` from the original draft is gone — repo location is runne
 - Integration test for checkpoint/resume mid-parallel-fanout and mid-review-pause using SQLite in a temp file.
 - Integration test for the scheduler running 2+ projects concurrently.
 - Integration test for the runner protocol: job round-trip, output persistence, `AWAITING_RUNNER` on disconnect, resume on reconnect.
-- Manual checklist for the web UI (drag-and-drop build, save, run, review-gate edit) and for Phase 5/6/7 (real Slack workspace, real repo, a second physical/VM machine running `octopus-runner`) — documented as a runbook in `README.md`.
+- Integration test for `cliagent` against a fake `JobDispatcher` (no real CLI invocation): asserts the right `run_agent` payload is built (tool, prompt, session_id), the result's output/session id land in `PipelineState`, and a resumed node awaits an existing pending job instead of double-dispatching.
+- Manual checklist for the web UI (drag-and-drop build, save, run, review-gate edit), for Phase 5/6/7 (real Slack workspace, real repo, a real coding CLI session end to end, a second physical/VM machine running `octopus-runner`), and for session continuation (start a run, finish it, start a second as "continue," confirm the CLI tool's `--resume` actually picked up prior context) — documented as a runbook in `README.md`.
 
 ---
 
@@ -458,4 +494,4 @@ Suggested first prompt once this file is in the repo root:
 
 > Read PLAN.md. Implement Phase 0 and Phase 1 only. Stop after Phase 1's tests pass (including the parallel-fanout DAG test and the review-gate pause/edit/continue test) and show me the diff before continuing.
 
-Working phase-by-phase with an explicit stop keeps each step reviewable instead of getting a 2000-line first commit. Multi-machine dispatch (Phase 7) is deliberately late — Phases 0–6 are all provable on a single machine first, so agent-logic bugs and networking/runner bugs never get debugged at the same time.
+Working phase-by-phase with an explicit stop keeps each step reviewable instead of getting a 2000-line first commit. Multi-machine dispatch (Phase 7) is deliberately late, and so is swapping in real CLI-delegated agents (Phase 6) — Phases 0–5 are all provable with fake agents on a single machine first, so DAG/engine bugs, real-agent-behavior bugs, and networking/runner bugs never get debugged all at once.

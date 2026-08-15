@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -90,7 +91,8 @@ CREATE TABLE IF NOT EXISTS projects (
 	name TEXT NOT NULL,
 	git_remote_url TEXT NOT NULL,
 	base_branch TEXT NOT NULL,
-	owner TEXT NOT NULL DEFAULT ''
+	owner TEXT NOT NULL DEFAULT '',
+	default_pipeline_def_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS pipeline_defs (
@@ -107,6 +109,7 @@ CREATE TABLE IF NOT EXISTS pipeline_states (
 	pipeline_def_id TEXT NOT NULL,
 	ticket_id TEXT NOT NULL DEFAULT '',
 	git_branch TEXT NOT NULL DEFAULT '',
+	session_id TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL,
 	pending_node_id TEXT NOT NULL DEFAULT '',
 	action_token TEXT NOT NULL DEFAULT '',
@@ -131,13 +134,15 @@ CREATE TABLE IF NOT EXISTS runners (
 CREATE TABLE IF NOT EXISTS git_jobs (
 	id TEXT PRIMARY KEY,
 	run_id TEXT NOT NULL,
+	node_id TEXT NOT NULL DEFAULT '',
 	project_id TEXT NOT NULL,
 	type TEXT NOT NULL,
 	payload_json TEXT NOT NULL DEFAULT '{}',
 	resolved INTEGER NOT NULL DEFAULT 0,
 	success INTEGER,
 	output TEXT,
-	error TEXT
+	error TEXT,
+	result_session_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -154,8 +159,24 @@ CREATE TABLE IF NOT EXISTS sessions (
 `
 
 func (s *SQLiteStore) migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, schema)
-	return err
+	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	// Additive columns for DBs created before these fields existed (both
+	// are included in the CREATE TABLEs above for brand-new DBs already).
+	for _, stmt := range []string{
+		`ALTER TABLE pipeline_states ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN default_pipeline_def_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE git_jobs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE git_jobs ADD COLUMN result_session_id TEXT NOT NULL DEFAULT ''`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return fmt.Errorf("running %q: %w", stmt, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) seedAdmin(ctx context.Context, username, passwordHash string) error {
@@ -170,17 +191,17 @@ func (s *SQLiteStore) seedAdmin(ctx context.Context, username, passwordHash stri
 
 func (s *SQLiteStore) SaveProject(ctx context.Context, p *domain.Project) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO projects (id, name, git_remote_url, base_branch, owner) VALUES (?, ?, ?, ?, ?)
+		INSERT INTO projects (id, name, git_remote_url, base_branch, owner, default_pipeline_def_id) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, git_remote_url=excluded.git_remote_url,
-			base_branch=excluded.base_branch, owner=excluded.owner
-	`, p.ID, p.Name, p.GitRemoteURL, p.BaseBranch, p.Owner)
+			base_branch=excluded.base_branch, owner=excluded.owner, default_pipeline_def_id=excluded.default_pipeline_def_id
+	`, p.ID, p.Name, p.GitRemoteURL, p.BaseBranch, p.Owner, p.DefaultPipelineDefID)
 	return err
 }
 
 func (s *SQLiteStore) LoadProject(ctx context.Context, id string) (*domain.Project, error) {
 	p := &domain.Project{ID: id}
-	err := s.db.QueryRowContext(ctx, `SELECT name, git_remote_url, base_branch, owner FROM projects WHERE id = ?`, id).
-		Scan(&p.Name, &p.GitRemoteURL, &p.BaseBranch, &p.Owner)
+	err := s.db.QueryRowContext(ctx, `SELECT name, git_remote_url, base_branch, owner, default_pipeline_def_id FROM projects WHERE id = ?`, id).
+		Scan(&p.Name, &p.GitRemoteURL, &p.BaseBranch, &p.Owner, &p.DefaultPipelineDefID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -191,7 +212,7 @@ func (s *SQLiteStore) LoadProject(ctx context.Context, id string) (*domain.Proje
 }
 
 func (s *SQLiteStore) ListProjects(ctx context.Context) ([]*domain.Project, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, git_remote_url, base_branch, owner FROM projects ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, git_remote_url, base_branch, owner, default_pipeline_def_id FROM projects ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +221,7 @@ func (s *SQLiteStore) ListProjects(ctx context.Context) ([]*domain.Project, erro
 	var out []*domain.Project
 	for rows.Next() {
 		p := &domain.Project{}
-		if err := rows.Scan(&p.ID, &p.Name, &p.GitRemoteURL, &p.BaseBranch, &p.Owner); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.GitRemoteURL, &p.BaseBranch, &p.Owner, &p.DefaultPipelineDefID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -280,24 +301,24 @@ func (s *SQLiteStore) Save(ctx context.Context, state *domain.PipelineState) err
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO pipeline_states (run_id, project_id, pipeline_def_id, ticket_id, git_branch, status, pending_node_id, action_token, node_outputs_json, summary)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO pipeline_states (run_id, project_id, pipeline_def_id, ticket_id, git_branch, session_id, status, pending_node_id, action_token, node_outputs_json, summary)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(run_id) DO UPDATE SET
 			project_id=excluded.project_id, pipeline_def_id=excluded.pipeline_def_id,
-			ticket_id=excluded.ticket_id, git_branch=excluded.git_branch, status=excluded.status,
+			ticket_id=excluded.ticket_id, git_branch=excluded.git_branch, session_id=excluded.session_id, status=excluded.status,
 			pending_node_id=excluded.pending_node_id, action_token=excluded.action_token,
 			node_outputs_json=excluded.node_outputs_json, summary=excluded.summary
-	`, state.RunID, state.ProjectID, state.PipelineDefID, state.TicketID, state.GitBranch,
+	`, state.RunID, state.ProjectID, state.PipelineDefID, state.TicketID, state.GitBranch, state.SessionID,
 		string(state.Status), state.PendingNodeID, state.ActionToken, string(outputsJSON), state.Summary)
 	return err
 }
 
 func (s *SQLiteStore) Load(ctx context.Context, runID string) (*domain.PipelineState, error) {
-	var projectID, pipelineDefID, ticketID, gitBranch, status, pendingNodeID, actionToken, outputsJSON, summary string
+	var projectID, pipelineDefID, ticketID, gitBranch, sessionID, status, pendingNodeID, actionToken, outputsJSON, summary string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT project_id, pipeline_def_id, ticket_id, git_branch, status, pending_node_id, action_token, node_outputs_json, summary
+		SELECT project_id, pipeline_def_id, ticket_id, git_branch, session_id, status, pending_node_id, action_token, node_outputs_json, summary
 		FROM pipeline_states WHERE run_id = ?
-	`, runID).Scan(&projectID, &pipelineDefID, &ticketID, &gitBranch, &status, &pendingNodeID, &actionToken, &outputsJSON, &summary)
+	`, runID).Scan(&projectID, &pipelineDefID, &ticketID, &gitBranch, &sessionID, &status, &pendingNodeID, &actionToken, &outputsJSON, &summary)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -316,6 +337,7 @@ func (s *SQLiteStore) Load(ctx context.Context, runID string) (*domain.PipelineS
 		PipelineDefID: pipelineDefID,
 		TicketID:      ticketID,
 		GitBranch:     gitBranch,
+		SessionID:     sessionID,
 		Status:        domain.Status(status),
 		PendingNodeID: pendingNodeID,
 		ActionToken:   actionToken,
@@ -330,7 +352,7 @@ var terminalStatuses = []domain.Status{
 
 func (s *SQLiteStore) ListActiveRuns(ctx context.Context) ([]*domain.PipelineState, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT run_id, project_id, pipeline_def_id, ticket_id, git_branch, status, pending_node_id, action_token, node_outputs_json, summary
+		SELECT run_id, project_id, pipeline_def_id, ticket_id, git_branch, session_id, status, pending_node_id, action_token, node_outputs_json, summary
 		FROM pipeline_states WHERE status NOT IN (?, ?, ?, ?) ORDER BY run_id
 	`, string(terminalStatuses[0]), string(terminalStatuses[1]), string(terminalStatuses[2]), string(terminalStatuses[3]))
 	if err != nil {
@@ -340,8 +362,8 @@ func (s *SQLiteStore) ListActiveRuns(ctx context.Context) ([]*domain.PipelineSta
 
 	var out []*domain.PipelineState
 	for rows.Next() {
-		var runID, projectID, pipelineDefID, ticketID, gitBranch, status, pendingNodeID, actionToken, outputsJSON, summary string
-		if err := rows.Scan(&runID, &projectID, &pipelineDefID, &ticketID, &gitBranch, &status, &pendingNodeID, &actionToken, &outputsJSON, &summary); err != nil {
+		var runID, projectID, pipelineDefID, ticketID, gitBranch, sessionID, status, pendingNodeID, actionToken, outputsJSON, summary string
+		if err := rows.Scan(&runID, &projectID, &pipelineDefID, &ticketID, &gitBranch, &sessionID, &status, &pendingNodeID, &actionToken, &outputsJSON, &summary); err != nil {
 			return nil, err
 		}
 		outputs := map[string]any{}
@@ -350,7 +372,7 @@ func (s *SQLiteStore) ListActiveRuns(ctx context.Context) ([]*domain.PipelineSta
 		}
 		out = append(out, &domain.PipelineState{
 			RunID: runID, ProjectID: projectID, PipelineDefID: pipelineDefID, TicketID: ticketID,
-			GitBranch: gitBranch, Status: domain.Status(status), PendingNodeID: pendingNodeID,
+			GitBranch: gitBranch, SessionID: sessionID, Status: domain.Status(status), PendingNodeID: pendingNodeID,
 			ActionToken: actionToken, NodeOutputs: outputs, Summary: summary,
 		})
 	}
@@ -401,7 +423,17 @@ func (s *SQLiteStore) ResolveReview(ctx context.Context, runID, actionToken stri
 		return err
 	}
 
-	if status != string(domain.StatusAwaitingReview) || storedToken == "" || storedToken != actionToken {
+	// subtle.ConstantTimeCompare, not !=: actionToken is a bearer credential
+	// (whoever holds it can approve/reject a review — including, once
+	// merge lands, pushing to the base branch), and it arrives over the
+	// network on every request (the web form, a Slack button's value). A
+	// plain != comparison short-circuits at the first differing byte, so
+	// response timing leaks how many leading characters an attacker's
+	// guess got right — the exact class of bug this review is looking
+	// for. ConstantTimeCompare returns 0 (not a timing leak) when lengths
+	// differ, since actionToken's expected length isn't itself secret.
+	tokenMatches := subtle.ConstantTimeCompare([]byte(storedToken), []byte(actionToken)) == 1
+	if status != string(domain.StatusAwaitingReview) || storedToken == "" || !tokenMatches {
 		return ErrStaleActionToken
 	}
 
@@ -487,6 +519,11 @@ func (s *SQLiteStore) TouchRunnerHeartbeat(ctx context.Context, runnerID string)
 	return nil
 }
 
+func (s *SQLiteStore) DeleteRunner(ctx context.Context, runnerID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM runners WHERE id = ?`, runnerID)
+	return err
+}
+
 // ---- Git jobs ----
 
 func (s *SQLiteStore) SaveGitJob(ctx context.Context, job *domain.GitJob) error {
@@ -495,15 +532,15 @@ func (s *SQLiteStore) SaveGitJob(ctx context.Context, job *domain.GitJob) error 
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO git_jobs (id, run_id, project_id, type, payload_json, resolved) VALUES (?, ?, ?, ?, ?, 0)
-		ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id, project_id=excluded.project_id,
+		INSERT INTO git_jobs (id, run_id, node_id, project_id, type, payload_json, resolved) VALUES (?, ?, ?, ?, ?, ?, 0)
+		ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id, node_id=excluded.node_id, project_id=excluded.project_id,
 			type=excluded.type, payload_json=excluded.payload_json
-	`, job.ID, job.RunID, job.ProjectID, job.Type, string(payloadJSON))
+	`, job.ID, job.RunID, job.NodeID, job.ProjectID, job.Type, string(payloadJSON))
 	return err
 }
 
 func (s *SQLiteStore) LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, run_id, project_id, type, payload_json FROM git_jobs WHERE resolved = 0 ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, run_id, node_id, project_id, type, payload_json FROM git_jobs WHERE resolved = 0 ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -513,7 +550,7 @@ func (s *SQLiteStore) LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob,
 	for rows.Next() {
 		j := &domain.GitJob{}
 		var payloadJSON string
-		if err := rows.Scan(&j.ID, &j.RunID, &j.ProjectID, &j.Type, &payloadJSON); err != nil {
+		if err := rows.Scan(&j.ID, &j.RunID, &j.NodeID, &j.ProjectID, &j.Type, &payloadJSON); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(payloadJSON), &j.Payload); err != nil {
@@ -524,10 +561,31 @@ func (s *SQLiteStore) LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob,
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) LoadPendingGitJobFor(ctx context.Context, runID, nodeID string) (*domain.GitJob, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, run_id, node_id, project_id, type, payload_json FROM git_jobs
+		WHERE run_id = ? AND node_id = ? AND resolved = 0 ORDER BY id LIMIT 1
+	`, runID, nodeID)
+
+	j := &domain.GitJob{}
+	var payloadJSON string
+	err := row.Scan(&j.ID, &j.RunID, &j.NodeID, &j.ProjectID, &j.Type, &payloadJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), &j.Payload); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
 func (s *SQLiteStore) ResolveGitJob(ctx context.Context, jobID string, result *domain.GitJobResult) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE git_jobs SET resolved = 1, success = ?, output = ?, error = ? WHERE id = ?
-	`, result.Success, result.Output, result.Error, jobID)
+		UPDATE git_jobs SET resolved = 1, success = ?, output = ?, error = ?, result_session_id = ? WHERE id = ?
+	`, result.Success, result.Output, result.Error, result.SessionID, jobID)
 	if err != nil {
 		return err
 	}
@@ -541,11 +599,44 @@ func (s *SQLiteStore) ResolveGitJob(ctx context.Context, jobID string, result *d
 	return nil
 }
 
+func (s *SQLiteStore) LoadGitJobResult(ctx context.Context, jobID string) (*domain.GitJobResult, error) {
+	var resolved bool
+	var success sql.NullBool
+	var output, jobErr, sessionID sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT resolved, success, output, error, result_session_id FROM git_jobs WHERE id = ?
+	`, jobID).Scan(&resolved, &success, &output, &jobErr, &sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !resolved {
+		return nil, ErrNotFound
+	}
+	return &domain.GitJobResult{
+		JobID: jobID, Success: success.Bool, Output: output.String, Error: jobErr.String, SessionID: sessionID.String,
+	}, nil
+}
+
 // ---- Users & sessions ----
 
 func (s *SQLiteStore) LoadUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	u := &domain.User{Username: username}
 	err := s.db.QueryRowContext(ctx, `SELECT id, password_hash FROM users WHERE username = ?`, username).Scan(&u.ID, &u.PasswordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func (s *SQLiteStore) LoadUserByID(ctx context.Context, id string) (*domain.User, error) {
+	u := &domain.User{ID: id}
+	err := s.db.QueryRowContext(ctx, `SELECT username, password_hash FROM users WHERE id = ?`, id).Scan(&u.Username, &u.PasswordHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

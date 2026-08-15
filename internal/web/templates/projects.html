@@ -1,0 +1,28 @@
+{{define "projects.html"}}
+<!doctype html>
+<html>
+<head>{{template "head" .}}<title>Projects — Octopus</title></head>
+<body>
+{{template "nav" .}}
+<main>
+  <h1>Projects</h1>
+  <ul class="project-list">
+    {{range .Projects}}
+    <li><a href="/projects/{{.ID}}">{{.Name}}</a> <span class="muted">{{.GitRemoteURL}} @ {{.BaseBranch}}</span></li>
+    {{else}}
+    <li class="muted">No projects yet — add one below.</li>
+    {{end}}
+  </ul>
+
+  <form method="post" action="/projects" class="card">
+    <h2>New project</h2>
+    <label>ID (slug)<input type="text" name="id" required pattern="[a-z0-9\-]+"></label>
+    <label>Name<input type="text" name="name" required></label>
+    <label>Git remote URL<input type="text" name="git_remote_url" required></label>
+    <label>Base branch<input type="text" name="base_branch" value="main" required></label>
+    <button type="submit">Create project</button>
+  </form>
+</main>
+</body>
+</html>
+{{end}}

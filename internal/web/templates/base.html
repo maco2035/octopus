@@ -1,0 +1,16 @@
+{{define "nav"}}
+<header class="nav">
+  <a class="brand" href="/">Octopus</a>
+  {{if .User}}
+    <a href="/runners">Runners</a>
+    <span class="nav-user">{{.User.Username}}</span>
+    <form method="post" action="/logout" class="nav-logout"><button type="submit">Log out</button></form>
+  {{end}}
+</header>
+{{end}}
+
+{{define "head"}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css">
+{{end}}
