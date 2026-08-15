@@ -16,7 +16,7 @@ CONFIG_PATH="${DATA_DIR}/octopus-config.yaml"
 ADMIN_USERNAME="${OCTOPUS_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${OCTOPUS_ADMIN_PASSWORD:-admin}"
 BRANCH_PATTERN="${OCTOPUS_BRANCH_PATTERN:-octopus/{ticket_id}}"
-RUNNER_ENABLED="${OCTOPUS_RUNNER_ENABLED:-false}"
+RUNNER_ENABLED="${OCTOPUS_RUNNER_ENABLED:-true}"
 GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
@@ -27,8 +27,23 @@ WEB_BASE_URL="${OCTOPUS_WEB_BASE_URL:-}"
 if [ -f /data/options.json ] && command -v jq >/dev/null 2>&1; then
   OPT_USER=$(jq -r '.admin_username // empty' /data/options.json 2>/dev/null || true)
   OPT_PASS=$(jq -r '.admin_password // empty' /data/options.json 2>/dev/null || true)
+  OPT_RUNNER=$(jq -r '.runner_enabled // empty' /data/options.json 2>/dev/null || true)
+  OPT_BRANCH=$(jq -r '.branch_pattern // empty' /data/options.json 2>/dev/null || true)
+  OPT_GEMINI=$(jq -r '.gemini_api_key // empty' /data/options.json 2>/dev/null || true)
+  OPT_ANTHROPIC=$(jq -r '.anthropic_api_key // empty' /data/options.json 2>/dev/null || true)
+  OPT_OPENAI=$(jq -r '.openai_api_key // empty' /data/options.json 2>/dev/null || true)
+  OPT_SLACK=$(jq -r '.slack_signing_secret // empty' /data/options.json 2>/dev/null || true)
+  OPT_WEB=$(jq -r '.web_base_url // empty' /data/options.json 2>/dev/null || true)
+
   [ -n "$OPT_USER" ] && [ "$OPT_USER" != "null" ] && ADMIN_USERNAME="$OPT_USER"
   [ -n "$OPT_PASS" ] && [ "$OPT_PASS" != "null" ] && ADMIN_PASSWORD="$OPT_PASS"
+  [ -n "$OPT_RUNNER" ] && [ "$OPT_RUNNER" != "null" ] && RUNNER_ENABLED="$OPT_RUNNER"
+  [ -n "$OPT_BRANCH" ] && [ "$OPT_BRANCH" != "null" ] && BRANCH_PATTERN="$OPT_BRANCH"
+  [ -n "$OPT_GEMINI" ] && [ "$OPT_GEMINI" != "null" ] && GEMINI_API_KEY="$OPT_GEMINI"
+  [ -n "$OPT_ANTHROPIC" ] && [ "$OPT_ANTHROPIC" != "null" ] && ANTHROPIC_API_KEY="$OPT_ANTHROPIC"
+  [ -n "$OPT_OPENAI" ] && [ "$OPT_OPENAI" != "null" ] && OPENAI_API_KEY="$OPT_OPENAI"
+  [ -n "$OPT_SLACK" ] && [ "$OPT_SLACK" != "null" ] && SLACK_SIGNING_SECRET="$OPT_SLACK"
+  [ -n "$OPT_WEB" ] && [ "$OPT_WEB" != "null" ] && WEB_BASE_URL="$OPT_WEB"
 fi
 
 ADMIN_PASSWORD_HASH=$(echo "${ADMIN_PASSWORD}" | /app/octopus hash-password)

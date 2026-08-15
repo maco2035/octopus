@@ -19,9 +19,6 @@ type WebServer struct {
 }
 
 func NewWebServer(m *Manager, port int) *WebServer {
-	if port == 0 {
-		port = m.GetWebPort()
-	}
 	return &WebServer{
 		manager: m,
 		port:    port,
