@@ -2,7 +2,7 @@
 // a real runnerhub.Hub, real runner.Client instances (the same code
 // cmd/octopus-runner runs), real WebSocket connections over httptest
 // servers, and a real local git remote — the only stand-in is the coding
-// CLI itself (no claude/codex/gemini binary in this sandbox), exactly as
+// CLI itself (no claude/codex/antigravity binary in this sandbox), exactly as
 // in the Phase 6 tests.
 package integration_test
 

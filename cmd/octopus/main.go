@@ -92,11 +92,11 @@ func main() {
 	sched.Dispatcher = dispatcher
 
 	agents.RegisterCLIPresets(reg, agents.PresetConfig{
-		Dispatcher:      dispatcher,
-		Store:           st,
-		AnthropicAPIKey: cfg.Agents.AnthropicAPIKey,
-		OpenAIAPIKey:    cfg.Agents.OpenAIAPIKey,
-		GeminiAPIKey:    cfg.Agents.GeminiAPIKey,
+		Dispatcher:        dispatcher,
+		Store:             st,
+		AnthropicAPIKey:   cfg.Agents.AnthropicAPIKey,
+		OpenAIAPIKey:      cfg.Agents.OpenAIAPIKey,
+		AntigravityAPIKey: cfg.Agents.AntigravityAPIKey,
 	})
 
 	if err := sched.ResumeActive(context.Background()); err != nil {

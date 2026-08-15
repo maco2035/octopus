@@ -17,7 +17,7 @@ ADMIN_USERNAME="${OCTOPUS_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${OCTOPUS_ADMIN_PASSWORD:-admin}"
 BRANCH_PATTERN="${OCTOPUS_BRANCH_PATTERN:-octopus/{ticket_id}}"
 RUNNER_ENABLED="${OCTOPUS_RUNNER_ENABLED:-true}"
-GEMINI_API_KEY="${GEMINI_API_KEY:-}"
+ANTIGRAVITY_API_KEY="${ANTIGRAVITY_API_KEY:-}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 SLACK_SIGNING_SECRET="${SLACK_SIGNING_SECRET:-}"
@@ -29,7 +29,7 @@ if [ -f /data/options.json ] && command -v jq >/dev/null 2>&1; then
   OPT_PASS=$(jq -r '.admin_password // empty' /data/options.json 2>/dev/null || true)
   OPT_RUNNER=$(jq -r '.runner_enabled // empty' /data/options.json 2>/dev/null || true)
   OPT_BRANCH=$(jq -r '.branch_pattern // empty' /data/options.json 2>/dev/null || true)
-  OPT_GEMINI=$(jq -r '.gemini_api_key // empty' /data/options.json 2>/dev/null || true)
+  OPT_ANTIGRAVITY=$(jq -r '.antigravity_api_key // empty' /data/options.json 2>/dev/null || true)
   OPT_ANTHROPIC=$(jq -r '.anthropic_api_key // empty' /data/options.json 2>/dev/null || true)
   OPT_OPENAI=$(jq -r '.openai_api_key // empty' /data/options.json 2>/dev/null || true)
   OPT_SLACK=$(jq -r '.slack_signing_secret // empty' /data/options.json 2>/dev/null || true)
@@ -39,7 +39,7 @@ if [ -f /data/options.json ] && command -v jq >/dev/null 2>&1; then
   [ -n "$OPT_PASS" ] && [ "$OPT_PASS" != "null" ] && ADMIN_PASSWORD="$OPT_PASS"
   [ -n "$OPT_RUNNER" ] && [ "$OPT_RUNNER" != "null" ] && RUNNER_ENABLED="$OPT_RUNNER"
   [ -n "$OPT_BRANCH" ] && [ "$OPT_BRANCH" != "null" ] && BRANCH_PATTERN="$OPT_BRANCH"
-  [ -n "$OPT_GEMINI" ] && [ "$OPT_GEMINI" != "null" ] && GEMINI_API_KEY="$OPT_GEMINI"
+  [ -n "$OPT_ANTIGRAVITY" ] && [ "$OPT_ANTIGRAVITY" != "null" ] && ANTIGRAVITY_API_KEY="$OPT_ANTIGRAVITY"
   [ -n "$OPT_ANTHROPIC" ] && [ "$OPT_ANTHROPIC" != "null" ] && ANTHROPIC_API_KEY="$OPT_ANTHROPIC"
   [ -n "$OPT_OPENAI" ] && [ "$OPT_OPENAI" != "null" ] && OPENAI_API_KEY="$OPT_OPENAI"
   [ -n "$OPT_SLACK" ] && [ "$OPT_SLACK" != "null" ] && SLACK_SIGNING_SECRET="$OPT_SLACK"
@@ -49,12 +49,12 @@ fi
 ADMIN_PASSWORD_HASH=$(echo "${ADMIN_PASSWORD}" | /app/octopus hash-password)
 
 export ADMIN_USERNAME ADMIN_PASSWORD_HASH BRANCH_PATTERN WEB_BASE_URL RUNNER_ENABLED DATA_DIR
-export GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY SLACK_SIGNING_SECRET
+export ANTIGRAVITY_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY SLACK_SIGNING_SECRET
 
 cat > "${CONFIG_PATH}" <<'EOF'
 port: 8080
 agents:
-  gemini_api_key: "${GEMINI_API_KEY}"
+  antigravity_api_key: "${ANTIGRAVITY_API_KEY}"
   anthropic_api_key: "${ANTHROPIC_API_KEY}"
   openai_api_key: "${OPENAI_API_KEY}"
 slack:

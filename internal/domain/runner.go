@@ -62,8 +62,8 @@ type GitJob struct {
 	RunID     string
 	NodeID    string // which node this job belongs to; lets a resumed node find its own still-unresolved job instead of dispatching a duplicate
 	ProjectID string
-	Type      string // "prepare_branch" | "run_agent" | "diff" | "apply_patch" | "commit" | "push" | "merge" | "shell_exec"
-	Payload   map[string]any // for run_agent: {"tool": "claude"|"codex"|"gemini", "prompt": "...", "session_id": "...", "api_key": "..."}
+	Type      string         // "prepare_branch" | "run_agent" | "diff" | "apply_patch" | "commit" | "push" | "merge" | "shell_exec"
+	Payload   map[string]any // for run_agent: {"tool": "claude"|"codex"|"antigravity", "prompt": "...", "session_id": "...", "api_key": "..."}
 }
 
 // Redacted returns a copy of j with Payload["api_key"] removed — safe to

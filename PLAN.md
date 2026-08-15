@@ -3,7 +3,7 @@
 **Status:** Planning
 **Version:** 0.1.0 (semver — see §9. Nothing gets tagged 1.0.0 until the phases that matter for a real release are actually done.)
 **Language:** Go (central server + `octopus-runner` agent binary) + server-rendered HTML/htmx + vanilla JS (web UI, no frontend build step)
-**Purpose:** A control plane that orchestrates real agentic coding CLIs (Claude Code, Codex CLI, Gemini CLI) against real tickets across multiple projects — the central server decides what needs to happen next and dispatches it to whichever dev machine can do the work, with the coding tool itself doing the actual reading/editing/testing in the real checkout, not a hand-rolled API loop — and gates progress behind human review via Slack/Discord or the web UI.
+**Purpose:** A control plane that orchestrates real agentic coding CLIs (Claude Code, Codex CLI, Antigravity CLI) against real tickets across multiple projects — the central server decides what needs to happen next and dispatches it to whichever dev machine can do the work, with the coding tool itself doing the actual reading/editing/testing in the real checkout, not a hand-rolled API loop — and gates progress behind human review via Slack/Discord or the web UI.
 
 This doc is meant to live at the root of a fresh repo as `PLAN.md` and be handed to Claude Code as the source of truth for implementation order. Each phase is scoped to be doable in one sitting and independently testable.
 
@@ -17,7 +17,7 @@ This doc is meant to live at the root of a fresh repo as `PLAN.md` and be handed
 - **Web UI lets you drag and drop agent nodes onto a canvas**, wire them into a DAG (including parallel branches), and save that as a reusable pipeline definition per project.
 - **Multiple projects (repos) run concurrently** — each project has its own pipeline definition(s) and its own in-flight runs; working on project A doesn't block project B.
 - **One central server holds all state and orchestration logic; the actual work is dispatched to a lightweight `octopus-runner` process installed on each dev machine.** Runners connect *outbound* to the server (like a self-hosted CI runner) — no inbound networking or port-forwarding needed on a laptop. You never have to think about "which machine is the server" — that's one fixed, always-on host; your dev machines just come and go as runners.
-- **Agent nodes that need to actually work in a codebase delegate to a real agentic CLI running on the runner — Claude Code, Codex CLI, or Gemini CLI — instead of Octopus reimplementing a read/edit/test/iterate loop centrally.** The central server's job is to decide *what* needs to happen next and hand it off; the CLI tool is the one actually reading files, writing code, and running tests, in the real checkout, with the real toolchain — the same way a human (or you, right now, using Claude Code to build this) would.
+- **Agent nodes that need to actually work in a codebase delegate to a real agentic CLI running on the runner — Claude Code, Codex CLI, or Antigravity CLI — instead of Octopus reimplementing a read/edit/test/iterate loop centrally.** The central server's job is to decide *what* needs to happen next and hand it off; the CLI tool is the one actually reading files, writing code, and running tests, in the real checkout, with the real toolchain — the same way a human (or you, right now, using Claude Code to build this) would.
 - **Related work can share context instead of starting cold every time.** A new run can be started as a continuation of a previous one, resuming the same coding-agent session (`--resume`) rather than re-explaining everything from scratch — this is what makes "carry context between multiple things to do" actually work.
 - **Skills and per-project tool config travel with the repo, not with Octopus.** A project's own checked-in `.claude/skills/` (or equivalent) is picked up automatically, because the CLI tool runs for real inside that checkout — Octopus doesn't need its own skill-distribution mechanism.
 - Since real work syncs through GitHub already (branches cut from a release line, pushed, merged), Octopus doesn't invent its own locking between machines/people — a runner just fetches, branches, commits, and pushes like a human would.
@@ -33,7 +33,7 @@ This doc is meant to live at the root of a fresh repo as `PLAN.md` and be handed
 - **Releases follow semver, starting at 0.1.0.** See §9.
 
 **Non-goals (for v1)**
-- **No custom reimplementation of an agentic read/edit/test loop.** That's exactly what Claude Code / Codex CLI / Gemini CLI already are — Octopus dispatches to them and waits for a result, it doesn't rebuild a worse version of them centrally.
+- **No custom reimplementation of an agentic read/edit/test loop.** That's exactly what Claude Code / Codex CLI / Antigravity CLI already are — Octopus dispatches to them and waits for a result, it doesn't rebuild a worse version of them centrally.
 - No full multi-tenant / cross-org isolation, no self-serve signup — single team, single Slack workspace, shared database, a small fixed set of accounts. Schema is forward-compatible with multiple people (`Project.Owner`), but there's no per-project access control yet — anyone logged in can see/do everything.
 - No distributed consensus / leaderless coordination between machines. There is exactly one central brain (the server); runners are dumb, replaceable, stateless workers. If you want "no single machine matters," that's solved by hosting the server somewhere reliable (in your case, the always-on Home Assistant box) — not by making every machine a peer.
 - **Octopus does not terminate TLS itself.** Login only happens over HTTPS, but Octopus expects whatever's in front of it to provide that — HA Ingress (+ Nabu Casa/HA Cloud remote access, or your own reverse proxy) when running as the add-on, or your own reverse proxy/tunnel for the generic Docker image. Serving a login form over plain HTTP on the public internet is not an acceptable v1 configuration.
@@ -47,8 +47,8 @@ This is one real, supported layout — worth writing down explicitly since it's 
 
 | Machine | Role | Runs | Configured with |
 |---|---|---|---|
-| Home Assistant server (remote, always-on) | **Central brain** | `octopus` server: scheduler, DAG engine, SQLite store, web UI, Slack gateway — packaged as the `ha-addon/` add-on | All AI provider API keys (Gemini/Claude/OpenAI/xAI), Slack credentials, the admin login, `branch_pattern` — all via the add-on's Configuration tab |
-| Dev machine (this one) | **Runner** | `octopus-runner`, plus whichever coding CLIs it's expected to serve (`claude`, `codex`, `gemini`, installed and logged in/configured like any normal dev tool) | A runner token (minted from the web UI) + normal local git/GitHub credentials (SSH key or PAT) for push access. **No AI provider keys stored here** — see below. |
+| Home Assistant server (remote, always-on) | **Central brain** | `octopus` server: scheduler, DAG engine, SQLite store, web UI, Slack gateway — packaged as the `ha-addon/` add-on | All AI provider API keys (Antigravity/Claude/OpenAI/xAI), Slack credentials, the admin login, `branch_pattern` — all via the add-on's Configuration tab |
+| Dev machine (this one) | **Runner** | `octopus-runner`, plus whichever coding CLIs it's expected to serve (`claude`, `codex`, `agy`, installed and logged in/configured like any normal dev tool) | A runner token (minted from the web UI) + normal local git/GitHub credentials (SSH key or PAT) for push access. **No AI provider keys stored here** — see below. |
 | Laptop at a cafe | **Client** | Nothing — just a browser | Nothing to configure; logs into the web UI over HTTPS like any other web app |
 
 The rule of thumb: if it's an AI provider key, it's *managed* on the central brain. If it's a git/GitHub credential, it goes on whichever machine is acting as a runner. A pure client machine (the cafe laptop) never has any Octopus config on it at all — it's not running any Octopus process, just a browser tab.
@@ -86,8 +86,8 @@ These are fixes/extensions to the original sketch, decided up front so Claude Co
 21. **A runner's local clone is scoped per `(project_id, run_id)`, not per project.** Two concurrent runs against the same project (two different tickets) landing on the same runner must not share one working directory — each run gets its own clone/worktree under `clone_cache_dir/<project_id>/<run_id>`, so simultaneous runs never clobber each other's checkout.
 22. **Session-based login gates the web UI.** `/login` checks a username against a bcrypt password hash and, on success, issues a signed, httpOnly, `Secure` session cookie; a server-side `Session` row (not just a signed cookie) makes logout and revocation real rather than "wait for expiry." Every web UI route requires a valid session. `/healthz`, `/api/slack/*` (their own signature verification), and the runner connect endpoint (its own token auth) are exempt by design — those are service-to-service traffic, not a human in a browser, and must keep working without a login session.
 23. **v1 ships with one configured admin account, not a signup flow.** `admin_username` and `admin_password_hash` are set via `config.yaml` / the HA add-on's Configuration tab (a small `octopus hash-password` CLI helper generates the hash so a plaintext password never sits in config or logs). This is deliberately the smallest thing that satisfies "real login" — a full `User` table with self-serve accounts can build on the same `Project.Owner` forward-compat field later without a redesign, once "more than one person" actually happens.
-24. **Grok (xAI) joins Gemini/Claude/OpenAI as a fourth supported agent provider.** Same treatment as the others: an API key in `agents.xai_api_key`.
-25. **Coding/review/report work is delegated to a real agentic CLI on the runner, not a hand-rolled central tool loop.** A `NodeDef` whose `AgentType` is a CLI preset (e.g. a "Claude coder," a "Codex reviewer") runs by dispatching a `run_agent` job — the runner invokes the actual CLI binary (`claude`, `codex`, `gemini`) non-interactively in the run's real checkout, with a role-specific prompt, and lets it do its normal autonomous read/edit/run-tests/iterate loop. The central server isn't in that loop step-by-step; it just waits for the job to finish.
+24. **Grok (xAI) joins Antigravity/Claude/OpenAI as a fourth supported agent provider.** Same treatment as the others: an API key in `agents.xai_api_key`.
+25. **Coding/review/report work is delegated to a real agentic CLI on the runner, not a hand-rolled central tool loop.** A `NodeDef` whose `AgentType` is a CLI preset (e.g. a "Claude coder," a "Codex reviewer") runs by dispatching a `run_agent` job — the runner invokes the actual CLI binary (`claude`, `codex`, `agy`) non-interactively in the run's real checkout, with a role-specific prompt, and lets it do its normal autonomous read/edit/run-tests/iterate loop. The central server isn't in that loop step-by-step; it just waits for the job to finish.
 26. **Skills and tool config live in the project's repo, not in Octopus.** Since the CLI runs for real in the checkout, whatever that project has checked into `.claude/skills/` (or the equivalent for other tools) is picked up automatically. Skills you want available across *every* project the tool touches are a one-time setup on the runner's own CLI config, not something Octopus pushes per job.
 27. **Coding sessions carry context via a `SessionID`.** `PipelineState.SessionID` (and `GitJobResult.SessionID` on the way back) tracks whichever session the CLI tool is using; a new run started as an explicit continuation of a previous one seeds its `SessionID` from that prior run before its first coding node executes, so the tool resumes the same conversation (`--resume`) instead of starting cold.
 28. **AI provider keys reach a `run_agent` job's runner only as a per-invocation environment variable, never as a stored credential.** The key travels inside that one job's payload, over the runner's already-authenticated connection, used for the duration of that subprocess only. This is what lets Key Design Decision 24's "no AI provider keys on the dev machine" hold even though the CLI tool that needs one runs there.
@@ -267,7 +267,7 @@ type GitJob struct {
     RunID     string
     ProjectID string
     Type      string // "prepare_branch" | "run_agent" | "diff" | "apply_patch" | "commit" | "push" | "merge" | "shell_exec"
-    Payload   map[string]any // for run_agent: {"tool": "claude"|"codex"|"gemini", "prompt": "...", "session_id": "...", "api_key": "..."}
+    Payload   map[string]any // for run_agent: {"tool": "claude"|"codex"|"antigravity", "prompt": "...", "session_id": "...", "api_key": "..."}
 }
 
 type GitJobResult struct {
@@ -395,7 +395,7 @@ type Store interface {
 - `internal/tools/git.go` implements `prepare_branch`, `diff`, `apply_patch`, `commit`, `push`, `merge` against a real local clone.
 - Every run's first step is the implicit `prepare_branch` job; `PipelineState.GitBranch` is set from it and all later jobs use it. The working clone lives at `clone_cache_dir/<project_id>/<run_id>` — scoped per run, not per project, so concurrent runs never share a checkout.
 - Before dispatching a `run_agent` job, `cliagent.Execute` checks `LoadPendingGitJobFor(runID, nodeID)` first — if an unresolved job is already there (this node re-running after a restart), it awaits that one instead of starting a second coding session.
-- **Done when:** a real ticket ID, built via a UI-designed pipeline or Slack command, produces a real branch (auto-created), a real Claude Code (or Codex/Gemini CLI) session that actually edits files and runs tests in the checkout, a real diff, a real security note, and a real merge on approval — all on one machine. A second run started as a continuation of the first resumes the same coding session rather than starting cold.
+- **Done when:** a real ticket ID, built via a UI-designed pipeline or Slack command, produces a real branch (auto-created), a real Claude Code (or Codex/Antigravity CLI) session that actually edits files and runs tests in the checkout, a real diff, a real security note, and a real merge on approval — all on one machine. A second run started as a continuation of the first resumes the same coding session rather than starting cold.
 
 ### Phase 7 — Runner protocol (multi-machine dispatch)
 - `cmd/octopus-runner/main.go`: reads `runner.example.yaml`-style config (server URL, runner token, which project IDs it serves), opens a persistent outbound connection (WebSocket) to the server, and executes dispatched `GitJob`s using the *same* `internal/tools/git.go` and `cli_invoke.go` code from Phase 6.
@@ -433,7 +433,7 @@ type Store interface {
 # config.example.yaml — the central server
 port: 8080
 agents:
-  gemini_api_key: ${GEMINI_API_KEY}
+  antigravity_api_key: ${ANTIGRAVITY_API_KEY}
   anthropic_api_key: ${ANTHROPIC_API_KEY}     # also used for Claude-backed run_agent jobs (Key Design Decision 28)
   openai_api_key: ${OPENAI_API_KEY}
   xai_api_key: ${XAI_API_KEY}       # Grok
@@ -460,7 +460,7 @@ project_ids:
   - proj_abc123
 clone_cache_dir: ~/.octopus/clones      # runner-local; not synced anywhere. Actual checkouts live at clone_cache_dir/<project_id>/<run_id>
 # No AI provider keys here — run_agent jobs receive one ephemerally per invocation (Key Design Decision 28).
-# The runner does need the relevant CLIs (claude / codex / gemini) actually installed to serve run_agent jobs.
+# The runner does need the relevant CLIs (claude / codex / agy) actually installed to serve run_agent jobs.
 ```
 
 Note: `git.repo_path` from the original draft is gone — repo location is runner-local (`clone_cache_dir`), scoped per `(project_id, run_id)` so concurrent runs never share a checkout, and `Project.GitRemoteURL` is what's shared centrally. Any runner registered for a project can pick up any job for that project's runs, not just the one that handled its first step — every job fetches before acting and pushes after mutating, so GitHub (not a particular runner's disk) is always the source of truth.

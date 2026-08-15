@@ -23,15 +23,15 @@ import (
 // There's no Grok/xAI preset here even though Key Design Decision 24 lists
 // Grok alongside Gemini/Claude/OpenAI as a supported provider: that
 // decision predates PLAN.md's pivot to CLI delegation, and unlike Claude
-// Code, Codex CLI, and Gemini CLI, there's no xAI-published agentic coding
-// CLI to delegate to here — adding one would mean guessing at a tool and
-// invocation contract that don't exist, rather than adapting a real one.
+// Code, Codex CLI, and Antigravity CLI, there's no xAI-published agentic
+// coding CLI to delegate to here — adding one would mean guessing at a tool
+// and invocation contract that don't exist, rather than adapting a real one.
 type PresetConfig struct {
-	Dispatcher      domain.JobDispatcher
-	Store           store.Store
-	AnthropicAPIKey string
-	OpenAIAPIKey    string
-	GeminiAPIKey    string
+	Dispatcher        domain.JobDispatcher
+	Store             store.Store
+	AnthropicAPIKey   string
+	OpenAIAPIKey      string
+	AntigravityAPIKey string
 }
 
 // RegisterCLIPresets registers the named agent types PLAN.md Phase 6
@@ -52,7 +52,7 @@ func RegisterCLIPresets(reg *Registry, cfg PresetConfig) {
 
 	register("claude-coder", "claude", coderPrompt, cfg.AnthropicAPIKey, nil)
 	register("codex-reviewer", "codex", reviewerPrompt, cfg.OpenAIAPIKey, nil)
-	register("gemini-reporter", "gemini", reporterPrompt, cfg.GeminiAPIKey, nil)
+	register("antigravity-reporter", "antigravity", reporterPrompt, cfg.AntigravityAPIKey, nil)
 	register("claude-security", "claude", securityPrompt, cfg.AnthropicAPIKey, detectBlockedPrefix)
 
 	// "merge" isn't CLI-backed — it's a direct git operation (Key Design

@@ -24,9 +24,9 @@ func NewLocalDispatcher(cloneCacheDir string) *LocalDispatcher {
 		Git: &GitRunner{CloneCacheDir: cloneCacheDir},
 		CLI: &CLIRunner{},
 		Invocation: map[string]CLIInvocation{
-			"claude": ClaudeCodeInvocation,
-			"codex":  CodexInvocation,
-			"gemini": GeminiInvocation,
+			"claude":      ClaudeCodeInvocation,
+			"codex":       CodexInvocation,
+			"antigravity": AntigravityInvocation,
 		},
 	}
 }

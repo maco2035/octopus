@@ -12,7 +12,7 @@ import (
 	"octopus/internal/tools"
 )
 
-// writeFakeCLI writes a small script standing in for claude/codex/gemini —
+// writeFakeCLI writes a small script standing in for claude/codex/antigravity —
 // this sandbox has none of those installed (no API keys either), so this
 // is what proves the invocation plumbing (args, env, session round-trip)
 // works, independent of any real provider. It echoes its args (so a test
