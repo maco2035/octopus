@@ -9,6 +9,18 @@ one at container start.
 Persistent state (SQLite DB) lives at `/data/octopus.db`, inside the add-on's
 normal persistent `/data` volume — it survives add-on restarts/updates.
 
+By default (`runner_enabled: true`) this add-on acts as the central brain
+only — it dispatches git/coding-CLI work to `octopus-runner` processes
+running on your dev machines rather than doing it itself (see the root
+[`README.md`](../README.md) for `octopus-runner` install/registration
+steps). Set `runner_enabled: false` if you'd rather have this add-on
+execute git/CLI work directly on the HA host — only sensible if the HA
+host itself has git, network access to your repos, and whichever coding
+CLIs your pipelines use.
+
+Set `web_base_url` (e.g. your Nabu Casa/HA Cloud URL) if you're using
+Slack — it's what "Open in web UI" links in review cards point at.
+
 The web UI is exposed via **Ingress**, so it's reachable through the Home
 Assistant UI itself (behind HA's own login) rather than needing a separate
 exposed port with its own auth — this satisfies the "web UI needs a network

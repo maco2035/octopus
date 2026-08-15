@@ -1,0 +1,18 @@
+{{define "runner_token.html"}}
+<!doctype html>
+<html>
+<head>{{template "head" .}}<title>Runner token — Octopus</title></head>
+<body>
+{{template "nav" .}}
+<main>
+  <p><a href="/runners">&larr; Runners</a></p>
+  <h1>Runner "{{.Runner.Name}}" created</h1>
+  <div class="card">
+    <p><strong>Copy this token now — it won't be shown again.</strong></p>
+    <pre>{{.Token}}</pre>
+    <p class="muted">Put it in runner.yaml's <code>runner_token</code> (or the <code>OCTOPUS_RUNNER_TOKEN</code> env var it expands from) on the dev machine running <code>octopus-runner</code>.</p>
+  </div>
+</main>
+</body>
+</html>
+{{end}}

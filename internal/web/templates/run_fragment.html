@@ -1,0 +1,38 @@
+{{define "run_fragment"}}
+<div id="run-fragment" data-status="{{.Run.Status}}">
+  <p><span class="status status-{{.Run.Status}}">{{.Run.Status}}</span>
+     {{if .Run.GitBranch}}<span class="muted">branch: {{.Run.GitBranch}}</span>{{end}}
+     {{if .Run.SessionID}}<span class="muted">session: {{.Run.SessionID}}</span>{{end}}
+  </p>
+
+  {{if eq .Run.Status "AWAITING_REVIEW"}}
+  <form method="post" action="/runs/{{.Run.RunID}}/review" class="card review-form">
+    <h3>Review: {{.Run.PendingNodeID}}</h3>
+    <input type="hidden" name="action_token" value="{{.Run.ActionToken}}">
+    <textarea name="edited_output" rows="8">{{.PendingOutput}}</textarea>
+    <div class="review-actions">
+      <button type="submit" name="decision" value="approve">Approve</button>
+      <button type="submit" name="decision" value="edit">Edit &amp; Continue</button>
+      <button type="submit" name="decision" value="reject" class="danger">Reject</button>
+    </div>
+  </form>
+  {{end}}
+
+  {{if eq .Run.Status "COMPLETED"}}
+  <form method="post" action="/runs/{{.Run.RunID}}/continue" class="inline-form">
+    <button type="submit">Continue as new run</button>
+  </form>
+  {{end}}
+
+  <h3>Node outputs</h3>
+  <table class="outputs-table">
+    <tbody>
+      {{range $k, $v := .Run.NodeOutputs}}
+      <tr><td>{{$k}}</td><td><pre>{{$v}}</pre></td></tr>
+      {{else}}
+      <tr><td colspan="2" class="muted">No output yet.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

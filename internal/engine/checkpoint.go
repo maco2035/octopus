@@ -53,7 +53,7 @@ func Resume(ctx context.Context, s ResumeStore, cp Checkpointer, runID string, c
 		for _, id := range completedIDs {
 			completed[id] = true
 		}
-		if err := p.Run(ctx, completed); err != nil && !errors.Is(err, ErrAwaitingReview) {
+		if err := p.Run(ctx, completed); err != nil && !isExpectedPause(err) {
 			return p, err
 		}
 		return p, nil
@@ -64,4 +64,13 @@ func Resume(ctx context.Context, s ResumeStore, cp Checkpointer, runID string, c
 		// next.
 		return p, nil
 	}
+}
+
+// isExpectedPause reports whether err is one of Run's "this isn't a
+// failure, just a reason to stop advancing for now" sentinels — the run's
+// Status and full state are already correctly persisted by the time Run
+// returns any of these, so a caller should treat them like a normal
+// return, not propagate them as a resume failure.
+func isExpectedPause(err error) bool {
+	return errors.Is(err, ErrAwaitingReview) || errors.Is(err, ErrBlocked) || errors.Is(err, ErrAwaitingRunner)
 }

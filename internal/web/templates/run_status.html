@@ -1,0 +1,19 @@
+{{define "run_status.html"}}
+<!doctype html>
+<html>
+<head>{{template "head" .}}<title>Run {{.Run.RunID}} — Octopus</title></head>
+<body>
+{{template "nav" .}}
+<main>
+  <p><a href="/projects/{{.Run.ProjectID}}">&larr; project</a></p>
+  <h1>Run {{.Run.RunID}}</h1>
+  <p class="muted">ticket: {{.Run.TicketID}}</p>
+
+  {{template "run_fragment" .}}
+</main>
+
+<script src="/static/run-poll.js"></script>
+<script>Octopus.pollRun({{.Run.RunID}}, "/runs/{{.Run.RunID}}/fragment");</script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,41 @@
+{{define "pipeline_editor.html"}}
+<!doctype html>
+<html>
+<head>{{template "head" .}}<title>Edit pipeline — Octopus</title></head>
+<body>
+{{template "nav" .}}
+<main class="editor-main">
+  <p><a href="/projects/{{.Project.ID}}">&larr; {{.Project.Name}}</a></p>
+
+  <div class="editor-toolbar">
+    <label>Pipeline name <input type="text" id="pipeline-name" value="{{.Def.Name}}"></label>
+    <span class="muted">Drag palette nodes onto the canvas. Click a node's dot then another node to wire an edge. Click an edge to delete it.</span>
+    <button id="save-btn" type="button">Save</button>
+    <span id="save-status" class="muted"></span>
+  </div>
+
+  <div class="editor-body">
+    <aside class="palette">
+      <h3>Agent types</h3>
+      {{range .AgentTypes}}
+      <div class="palette-item" draggable="true" data-agent-type="{{.}}">{{.}}</div>
+      {{else}}
+      <p class="muted">No agent types registered.</p>
+      {{end}}
+    </aside>
+    <div id="canvas" class="canvas"></div>
+  </div>
+</main>
+
+<script id="pipeline-data" type="application/json">{{.DefJSON}}</script>
+<script src="/static/canvas.js"></script>
+<script>
+  Octopus.initEditor({
+    projectID: {{.Project.ID}},
+    defID: {{.Def.ID}},
+    saveURL: "/api/pipeline-defs"
+  });
+</script>
+</body>
+</html>
+{{end}}

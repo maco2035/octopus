@@ -26,6 +26,8 @@ options:
   branch_pattern: "octopus/{ticket_id}"
   admin_username: "admin"
   admin_password_hash: ""
+  runner_enabled: true
+  web_base_url: ""
 schema:
   gemini_api_key: str
   anthropic_api_key: str
@@ -36,3 +38,5 @@ schema:
   branch_pattern: str
   admin_username: str
   admin_password_hash: str
+  runner_enabled: bool
+  web_base_url: str

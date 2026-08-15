@@ -15,6 +15,17 @@ type Config struct {
 	Git    GitConfig    `yaml:"git"`
 	Web    WebConfig    `yaml:"web"`
 	Auth   AuthConfig   `yaml:"auth"`
+	Runner RunnerConfig `yaml:"runner"`
+}
+
+// RunnerConfig switches the server between Phase 6's LocalDispatcher
+// (git/CLI work runs directly on the server — the default, no setup
+// needed) and Phase 7's runnerhub.Hub (work is routed to connected
+// octopus-runner processes over /runner/connect). Both implement the same
+// domain.JobDispatcher; this is the "purely a wiring change in main.go"
+// PLAN.md Phase 7 describes.
+type RunnerConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type AgentsConfig struct {
@@ -46,10 +57,12 @@ type StoreConfig struct {
 
 type GitConfig struct {
 	BranchPattern string `yaml:"branch_pattern"`
+	CloneCacheDir string `yaml:"clone_cache_dir"` // where run checkouts live, scoped per (project_id, run_id); defaults to ./data/clones if empty
 }
 
 type WebConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool   `yaml:"enabled"`
+	BaseURL string `yaml:"base_url"` // used to build Slack "Open in web UI" links; defaults to http://localhost:<port> if empty
 }
 
 // Load reads and validates config from path, expanding ${VAR} references

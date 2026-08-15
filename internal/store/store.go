@@ -40,12 +40,16 @@ type Store interface {
 	SaveRunner(ctx context.Context, r *domain.Runner) error
 	ListRunners(ctx context.Context) ([]*domain.Runner, error)
 	TouchRunnerHeartbeat(ctx context.Context, runnerID string) error
+	DeleteRunner(ctx context.Context, runnerID string) error // revocation (PLAN.md §8: "rotate/revoke from the web UI if a machine is decommissioned")
 
-	SaveGitJob(ctx context.Context, job *domain.GitJob) error         // called before dispatch, so it survives a server restart
-	LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob, error) // reloaded by runnerhub on boot
+	SaveGitJob(ctx context.Context, job *domain.GitJob) error                               // called before dispatch, so it survives a server restart
+	LoadPendingGitJobs(ctx context.Context) ([]*domain.GitJob, error)                       // reloaded by runnerhub on boot
+	LoadPendingGitJobFor(ctx context.Context, runID, nodeID string) (*domain.GitJob, error) // ErrNotFound if this node has no unresolved job — the re-run-after-restart check (Key Design Decision 19)
 	ResolveGitJob(ctx context.Context, jobID string, result *domain.GitJobResult) error
+	LoadGitJobResult(ctx context.Context, jobID string) (*domain.GitJobResult, error) // ErrNotFound if jobID doesn't exist or isn't resolved yet — lets AwaitingDispatcher.Await check "did this already finish while I wasn't looking" (e.g. across a server restart) before registering a fresh waiter
 
 	LoadUserByUsername(ctx context.Context, username string) (*domain.User, error)
+	LoadUserByID(ctx context.Context, id string) (*domain.User, error) // used to resolve Session.UserID back to a User
 
 	SaveSession(ctx context.Context, s *domain.Session) error
 	LoadSession(ctx context.Context, token string) (*domain.Session, error) // caller checks ExpiresAt; an expired-but-present row is not treated as ErrNotFound here

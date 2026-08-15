@@ -1,0 +1,58 @@
+{{define "project_detail.html"}}
+<!doctype html>
+<html>
+<head>{{template "head" .}}<title>{{.Project.Name}} — Octopus</title></head>
+<body>
+{{template "nav" .}}
+<main>
+  <p><a href="/">&larr; Projects</a></p>
+  <h1>{{.Project.Name}}</h1>
+  <p class="muted">{{.Project.GitRemoteURL}} @ {{.Project.BaseBranch}}</p>
+
+  <section>
+    <h2>Pipelines</h2>
+    <a class="button" href="/projects/{{.Project.ID}}/pipelines/new">+ New pipeline</a>
+    <ul class="pipeline-list">
+      {{range .PipelineDefs}}
+      <li>
+        <a href="/projects/{{$.Project.ID}}/pipelines/{{.ID}}/edit">{{.Name}}</a>
+        {{if eq .ID $.Project.DefaultPipelineDefID}}
+        <span class="muted">(default — used by /octopus {{$.Project.ID}} &lt;ticket&gt;)</span>
+        {{else}}
+        <form method="post" action="/projects/{{$.Project.ID}}/pipelines/{{.ID}}/make-default" class="inline-form">
+          <button type="submit">Make default</button>
+        </form>
+        {{end}}
+        <form method="post" action="/projects/{{$.Project.ID}}/pipelines/{{.ID}}/run" class="inline-form">
+          <input type="text" name="ticket_id" placeholder="ticket id" required>
+          <button type="submit">Run</button>
+        </form>
+      </li>
+      {{else}}
+      <li class="muted">No pipelines yet.</li>
+      {{end}}
+    </ul>
+  </section>
+
+  <section>
+    <h2>Active runs</h2>
+    <p class="muted">Runs still in flight (pending, running, awaiting review/runner). Finished runs stay reachable by their direct link.</p>
+    <table class="runs-table">
+      <thead><tr><th>Run</th><th>Ticket</th><th>Status</th></tr></thead>
+      <tbody>
+        {{range .Runs}}
+        <tr>
+          <td><a href="/runs/{{.RunID}}">{{.RunID}}</a></td>
+          <td>{{.TicketID}}</td>
+          <td><span class="status status-{{.Status}}">{{.Status}}</span></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="3" class="muted">No active runs.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>
+{{end}}

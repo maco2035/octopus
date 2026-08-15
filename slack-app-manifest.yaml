@@ -1,0 +1,39 @@
+# Slack app manifest for Octopus's slash command + interactive Block Kit
+# review cards (PLAN.md Phase 5). Create the app at https://api.slack.com/apps
+# > "Create New App" > "From an app manifest", paste this in, then replace
+# both request URLs with your actual server address.
+#
+# Only the signing secret is required by the current implementation —
+# internal/gateway verifies every request with it (slack_verify.go) and
+# posts review cards back via each interaction's own response_url, which
+# needs no additional OAuth scope. `bot_token` exists in config.example.yaml
+# for a future chat.postMessage-based notifier but nothing calls it yet;
+# don't bother issuing one until something in the code actually uses it.
+display_information:
+  name: Octopus
+  description: Trigger and review Octopus pipeline runs from Slack
+  background_color: "#2c2d30"
+
+features:
+  bot_user:
+    display_name: octopus
+    always_online: true
+  slash_commands:
+    - command: /octopus
+      url: https://YOUR-OCTOPUS-HOST/api/slack/command
+      description: Start an Octopus pipeline run
+      usage_hint: "<project_id> <ticket_id>"
+      should_escape: false
+
+oauth_config:
+  scopes:
+    bot:
+      - commands
+
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR-OCTOPUS-HOST/api/slack/action
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

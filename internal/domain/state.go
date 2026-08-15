@@ -13,6 +13,7 @@ type PipelineState struct {
 	PipelineDefID string
 	TicketID      string
 	GitBranch     string
+	SessionID     string // coding-agent session to resume; seeded from a prior run when this one is an explicit continuation (Key Design Decision 27)
 	Status        Status
 	PendingNodeID string
 	ActionToken   string
@@ -28,6 +29,26 @@ func NewPipelineState(runID string) *PipelineState {
 		Status:      StatusPending,
 		NodeOutputs: make(map[string]any),
 	}
+}
+
+// SetSessionID and GetSessionID guard SessionID the same way SetOutput and
+// GetOutput guard NodeOutputs: multiple cliagent nodes (Phase 6) can run
+// concurrently within one DAG level, and a bare field read racing a bare
+// field write there is a real data race, not just a style nit. Code that
+// only ever touches SessionID between levels (the scheduler seeding it
+// before a run starts, the Store persisting it after a level fully
+// finishes) can still use the bare field safely — but any read or write
+// that might happen while nodes are executing must go through these.
+func (s *PipelineState) SetSessionID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SessionID = id
+}
+
+func (s *PipelineState) GetSessionID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.SessionID
 }
 
 func (s *PipelineState) SetOutput(nodeID string, value any) {

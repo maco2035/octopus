@@ -15,8 +15,10 @@ store:
   dsn: ./data/octopus.db
 git:
   branch_pattern: "octopus/{ticket_id}"
+  clone_cache_dir: ./data/clones   # per-run checkouts live at <this>/<project_id>/<run_id>; defaults here if empty
 web:
   enabled: true
+  base_url: ""   # e.g. https://octopus.example.com — used to build Slack "Open in web UI" links; defaults to http://localhost:<port>
 auth:
   admin_username: ${OCTOPUS_ADMIN_USERNAME}
   # generate with: go run ./cmd/octopus hash-password

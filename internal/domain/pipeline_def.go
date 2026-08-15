@@ -7,6 +7,7 @@ type NodeDef struct {
 	AgentType      string
 	Config         map[string]any
 	RequiresReview bool // if true, the engine pauses after this node until a human continues it
+	X, Y           int  // canvas position in the web UI's drag-and-drop editor (Phase 4); never passed into an agent's cfg
 }
 
 type EdgeDef struct {

@@ -17,6 +17,25 @@ import (
 // persist state and call Continue once a human has responded.
 var ErrAwaitingReview = errors.New("pipeline paused: awaiting review")
 
+// ErrBlocked is what a security-preset cliagent node wraps its returned
+// error in in to halt the run outright (PLAN.md Phase 6: "Security agent
+// ... can set StatusBlocked; engine short-circuits and notifies"), rather
+// than a plain node failure (StatusFailed) or a review pause
+// (StatusAwaitingReview) — a blocked run needs its own status because
+// "the security check found a real problem" reads differently, in the web
+// UI and in Slack, than "a node crashed" or "waiting on a human to sign
+// off."
+var ErrBlocked = errors.New("pipeline blocked: security check failed")
+
+// ErrAwaitingRunner is what a git-tool node (cliagent, mergeAgent) wraps
+// domain.ErrNoRunnerAvailable in when no octopus-runner is currently
+// connected to serve its project (PLAN.md Phase 7). Like ErrAwaitingReview,
+// this is not a failure — the node deliberately isn't checkpointed, so a
+// later Resume (triggered automatically by runnerhub.Hub the moment a
+// matching runner connects) re-executes exactly this node rather than
+// skipping it or duplicating earlier work.
+var ErrAwaitingRunner = errors.New("pipeline paused: awaiting runner")
+
 // AgentFactory matches agents.Registry.Create's signature exactly, so a
 // *agents.Registry can be passed directly as a Pipeline's CreateAgent.
 type AgentFactory func(agentType string, cfg map[string]any) (domain.Agent, error)
@@ -106,7 +125,15 @@ func (p *Pipeline) Run(ctx context.Context, completed map[string]bool) error {
 		}
 
 		if err := g.Wait(); err != nil {
-			p.State.Status = domain.StatusFailed
+			switch {
+			case errors.Is(err, ErrBlocked):
+				p.State.Status = domain.StatusBlocked
+				p.State.Summary = err.Error()
+			case errors.Is(err, ErrAwaitingRunner):
+				p.State.Status = domain.StatusAwaitingRunner
+			default:
+				p.State.Status = domain.StatusFailed
+			}
 			_ = p.persist(ctx)
 			return err
 		}
