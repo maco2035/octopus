@@ -1,8 +1,18 @@
 name: "Octopus"
-version: "0.1.1"
+version: "0.2.0"
 slug: "octopus"
 description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
 url: "https://github.com/maco2035/octopus"
+# Pre-built by .github/workflows/publish-ha-addon.yml and pushed to GHCR —
+# Supervisor pulls this instead of building locally. Local builds (the
+# build.yaml path) hit a real Supervisor bug on this host: every add-on
+# start failed with "Invalid token for access /addons/self/options/config"
+# in the Supervisor log, immediately after a fresh install/build — matches
+# home-assistant/supervisor#4111 and #1930, both specific to locally-built
+# add-ons. Pulling a pre-built image sidesteps Supervisor's local-build
+# path entirely, which is also the path its own build log flags as
+# deprecated ("App ... uses build.yaml which is deprecated").
+image: "ghcr.io/maco2035/octopus-addon-{arch}"
 arch:
   - amd64
   - aarch64

@@ -1,7 +1,9 @@
 # One image, two consumers: `docker build .` / docker-compose runs this
-# directly (default BUILD_FROM below); the Home Assistant add-on builds
-# the exact same Dockerfile with BUILD_FROM overridden per-arch by
-# build.yaml (ghcr.io/home-assistant/{arch}-base). Both bases are
+# directly (default BUILD_FROM below); .github/workflows/publish-ha-addon.yml
+# builds the exact same Dockerfile per-arch with BUILD_FROM overridden to
+# ghcr.io/home-assistant/{arch}-base and pushes the result to GHCR, which
+# is what the HA add-on actually pulls (config.yaml's `image:` field) —
+# Supervisor never builds this Dockerfile itself. Both bases are
 # Alpine-derived, so the apk install and everything after it is identical
 # either way — docker-entrypoint.sh is what actually tells the two modes
 # apart at runtime. ARG must be declared before the first FROM to be
