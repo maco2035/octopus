@@ -3,6 +3,13 @@ version: "0.1.0"
 slug: "octopus"
 description: "Multi-agent AI pipeline orchestrator: drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals."
 url: "https://github.com/maco2035/octopus"
+# Pre-built by .github/workflows/publish-ha-addon.yml and pushed to GHCR —
+# Supervisor pulls this instead of building locally. That's what makes
+# "add the repo, click install" actually fast and reliable: Supervisor
+# only ever has this ha-addon/ folder as build context, and it can't see
+# the Go source (cmd/, internal/, go.mod) that lives at the repo root, so
+# a local build here would fail no matter how this folder were arranged.
+image: "ghcr.io/maco2035/octopus-addon-{arch}"
 arch:
   - amd64
   - aarch64
@@ -16,27 +23,26 @@ ports:
   8080/tcp: 8080
 ports_description:
   8080/tcp: "Octopus web UI and API (also reachable via Ingress)"
+# Only admin_password is actually required. Everything else has a working
+# default or can be left blank until you need it (e.g. skip Slack entirely
+# at first). See DOCS.md for what each one does.
 options:
+  admin_username: "admin"
+  admin_password: ""
   gemini_api_key: ""
   anthropic_api_key: ""
   openai_api_key: ""
-  xai_api_key: ""
-  slack_bot_token: ""
   slack_signing_secret: ""
   branch_pattern: "octopus/{ticket_id}"
-  admin_username: "admin"
-  admin_password_hash: ""
   runner_enabled: true
   web_base_url: ""
 schema:
-  gemini_api_key: str
-  anthropic_api_key: str
-  openai_api_key: str
-  xai_api_key: str
-  slack_bot_token: str
-  slack_signing_secret: str
-  branch_pattern: str
   admin_username: str
-  admin_password_hash: str
+  admin_password: password
+  gemini_api_key: password?
+  anthropic_api_key: password?
+  openai_api_key: password?
+  slack_signing_secret: password?
+  branch_pattern: str
   runner_enabled: bool
-  web_base_url: str
+  web_base_url: str?

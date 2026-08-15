@@ -83,10 +83,19 @@ each dev machine, not as a disposable container).
 
 ## Run as a Home Assistant add-on
 
-See [`ha-addon/DOCS.md`](ha-addon/DOCS.md) — this is the deployment shape
-`PLAN.md` is actually written around: an always-on HA box as the central
-brain (`runner_enabled: true` by default in the add-on), your laptop as a
-runner that comes and goes.
+This is the deployment shape `PLAN.md` is actually written around: an
+always-on HA box as the central brain, your laptop as a runner that comes
+and goes. Setup is just:
+
+1. HA → Settings → Add-ons → Add-on Store → ⋮ → Repositories → add
+   `https://github.com/maco2035/octopus`.
+2. Install "Octopus" (pulls a pre-built image — no local build, no Go
+   toolchain needed on the HA host).
+3. Configuration tab → set `admin_password` and at least one API key →
+   Save → Start.
+
+Full details, including which options are actually required (short
+answer: just `admin_password`) in [`ha-addon/DOCS.md`](ha-addon/DOCS.md).
 
 ## Test
 

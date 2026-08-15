@@ -3,5 +3,5 @@
 # auto-discovers any folder containing a config.yaml as one add-on — here
 # that's ha-addon/.
 name: "Octopus Add-ons"
-url: "https://github.com/YOUR_GITHUB_USER/octopus"
-maintainer: "you"
+url: "https://github.com/maco2035/octopus"
+maintainer: "maco2035"

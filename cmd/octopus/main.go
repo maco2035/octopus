@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -178,11 +182,20 @@ func runHashPassword(args []string) {
 		password = args[0]
 	} else {
 		fmt.Fprint(os.Stderr, "Password: ")
-		var input string
-		if _, err := fmt.Scanln(&input); err != nil {
+		// bufio.Reader.ReadString, not fmt.Scanln: Scanln splits on
+		// whitespace, so a passphrase with a space in it ("correct horse
+		// battery staple") silently truncates to the first word and then
+		// errors on the leftover text ("expected newline") — found by
+		// actually testing this against a spaced password, not by
+		// inspection.
+		input, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
 			log.Fatalf("reading password: %v", err)
 		}
-		password = input
+		password = strings.TrimRight(input, "\r\n")
+		if password == "" {
+			log.Fatal("reading password: empty input")
+		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
