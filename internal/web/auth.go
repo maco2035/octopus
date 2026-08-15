@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -27,7 +28,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	username := r.FormValue("username")
+	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 
 	user, err := s.Store.LoadUserByUsername(r.Context(), username)
@@ -52,7 +53,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.setSessionCookie(w, token, expiresAt)
+	s.setSessionCookie(w, r, token, expiresAt)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -60,6 +61,6 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		_ = s.Store.DeleteSession(r.Context(), cookie.Value)
 	}
-	s.clearSessionCookie(w)
+	s.clearSessionCookie(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

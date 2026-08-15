@@ -67,19 +67,21 @@ func userFromContext(ctx context.Context) *domain.User {
 	return u
 }
 
-func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, expiresAt time.Time) {
+	secure := (r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https") && !s.InsecureCookies
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		Expires:  expiresAt,
 		HttpOnly: true,
-		Secure:   !s.InsecureCookies, // plain HTTP only in tests/local dev; Octopus expects TLS in front in real deployments (PLAN.md §8)
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-func (s *Server) clearSessionCookie(w http.ResponseWriter) {
+func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	secure := (r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https") && !s.InsecureCookies
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
@@ -87,7 +89,7 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   !s.InsecureCookies,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

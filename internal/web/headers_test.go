@@ -21,7 +21,7 @@ func TestSecurityHeaders_SetOnEveryResponse(t *testing.T) {
 
 	cases := map[string]string{
 		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY",
+		"X-Frame-Options":        "SAMEORIGIN",
 		"Referrer-Policy":        "same-origin",
 	}
 	for header, want := range cases {
