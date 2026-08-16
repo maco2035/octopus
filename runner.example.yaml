@@ -8,4 +8,4 @@ project_ids:
 clone_cache_dir: ~/.octopus/clones      # runner-local; not synced anywhere. Actual checkouts live at clone_cache_dir/<project_id>/<run_id>
 local_queue_db: ~/.octopus/runner.db    # runner-local durable queue, separate from the server's database
 # No AI provider keys here — run_agent jobs receive one ephemerally per invocation (Key Design Decision 28).
-# The runner does need the relevant CLIs (claude / codex / gemini) actually installed to serve run_agent jobs.
+# The runner does need the relevant CLIs (claude / codex / agy) actually installed to serve run_agent jobs.

@@ -36,13 +36,13 @@ var ClaudeCodeInvocation = CLIInvocation{
 	ParseSessionID: parseJSONField(sessionIDKeys...),
 }
 
-// CodexInvocation and GeminiInvocation follow the same shape (a
-// print/non-interactive flag, a resume flag, JSON output) since that's the
-// common convention across these tools, but — unlike ClaudeCodeInvocation
-// — the exact flag names here are a best-effort default, not verified
-// against each CLI's current --help output. Confirm against the installed
-// version before relying on either in a real deployment; this environment
-// has neither binary installed to check against.
+// CodexInvocation follows the same shape (a print/non-interactive flag, a
+// resume flag, JSON output) since that's the common convention across these
+// tools, but — unlike ClaudeCodeInvocation — the exact flag names here are
+// a best-effort default, not verified against the CLI's current --help
+// output. Confirm against the installed version before relying on this in
+// a real deployment; this environment has no codex binary installed to
+// check against.
 var CodexInvocation = CLIInvocation{
 	Binary: "codex",
 	BuildArgs: func(prompt, sessionID string) []string {
@@ -55,16 +55,32 @@ var CodexInvocation = CLIInvocation{
 	ParseSessionID: parseJSONField(sessionIDKeys...),
 }
 
-var GeminiInvocation = CLIInvocation{
-	Binary: "gemini",
+// AntigravityInvocation drives Google's Antigravity CLI (binary `agy`, the
+// successor Google pointed Gemini CLI users to — see
+// https://antigravity.google/docs/cli/headless). Unlike CodexInvocation,
+// these flags ARE verified against agy's published docs: `-p`/`--print` for
+// a single non-interactive prompt, `--output-format json`, and
+// `--conversation <id>` (not `--resume`) to continue a prior run using the
+// `conversation_id` the JSON output reports.
+//
+// What's NOT verified — and, per a maintainer on
+// google-antigravity/antigravity-cli#78, not currently supported at all —
+// is API-key authentication for headless use: agy's headless mode expects
+// cached credentials from a prior interactive `agy` login on the runner
+// machine, not an injected env var. EnvVarForTool still maps an
+// ANTIGRAVITY_API_KEY entry below for parity with the other tools and in
+// case upstream adds support, but as of this writing it has no effect —
+// authenticate the runner host interactively instead.
+var AntigravityInvocation = CLIInvocation{
+	Binary: "agy",
 	BuildArgs: func(prompt, sessionID string) []string {
 		args := []string{"-p", prompt, "--output-format", "json"}
 		if sessionID != "" {
-			args = append(args, "--resume", sessionID)
+			args = append(args, "--conversation", sessionID)
 		}
 		return args
 	},
-	ParseSessionID: parseJSONField(sessionIDKeys...),
+	ParseSessionID: parseJSONField(append([]string{"conversation_id"}, sessionIDKeys...)...),
 }
 
 var sessionIDKeys = []string{"session_id", "sessionId", "SessionID"}
@@ -116,9 +132,9 @@ func lastJSONObject(output string) string {
 // (Key Design Decision 28) as an ephemeral env var for that one subprocess
 // only — never written to disk.
 var EnvVarForTool = map[string]string{
-	"claude": "ANTHROPIC_API_KEY",
-	"codex":  "OPENAI_API_KEY",
-	"gemini": "GEMINI_API_KEY",
+	"claude":      "ANTHROPIC_API_KEY",
+	"codex":       "OPENAI_API_KEY",
+	"antigravity": "ANTIGRAVITY_API_KEY",
 }
 
 // CLIRunner invokes a coding CLI non-interactively in dir.

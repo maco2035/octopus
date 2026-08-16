@@ -1,7 +1,7 @@
 # Octopus
 
 A control plane that orchestrates real agentic coding CLIs (Claude Code,
-Codex CLI, Gemini CLI) against real tickets across multiple projects — the
+Codex CLI, Antigravity CLI) against real tickets across multiple projects — the
 central server decides what needs to happen next and dispatches it to
 whichever dev machine can do the work, and gates progress behind human
 review via Slack or the web UI. See [`PLAN.md`](PLAN.md) for the full
@@ -25,7 +25,7 @@ git remote), build a pipeline in the drag-and-drop editor, and hit Run. In
 this mode the server executes git and coding-CLI work itself
 (`tools.LocalDispatcher`) — simplest to get started with, but everything
 runs on whatever machine the server is on, and that machine needs the
-relevant coding CLIs (`claude` / `codex` / `gemini`) installed and any
+relevant coding CLIs (`claude` / `codex` / `agy`) installed and any
 API keys it needs available as `agents.*_api_key` in `octopus.yaml`.
 
 ## Multi-machine (the intended real deployment)
@@ -35,7 +35,7 @@ add-on, `runner.enabled: true` in `octopus.yaml` from source). The server
 now dispatches git/coding-CLI work over `/runner/connect` to any connected
 `octopus-runner` process instead of doing it itself — no AI provider keys
 need to live on the server's own disk beyond what it's already configured
-with, and the machine actually running `claude`/`codex`/`gemini` can be
+with, and the machine actually running `claude`/`codex`/`agy` can be
 your laptop, not wherever the server happens to be hosted.
 
 On each dev machine that should do work:
@@ -52,7 +52,7 @@ go build -o octopus-runner ./cmd/octopus-runner
 When started, `octopus-runner` automatically hosts a local Web Dashboard at **`http://localhost:8088`**. You can open it in your browser to enter the server WebSocket URL and runner token, verify your CLI toolchains, and monitor live execution. Alternatively, you can pre-configure `runner.yaml` (from `runner.example.yaml`).
 
 Make sure the runner machine has `git`, and whichever of `claude` /
-`codex` / `gemini` your pipelines use, actually installed and on `PATH` —
+`codex` / `agy` your pipelines use, actually installed and on `PATH` —
 the runner shells out to them non-interactively (see `internal/tools`).
 
 A project's default pipeline (used by the Slack slash command, and shown
@@ -161,7 +161,7 @@ Almost everything is covered by real integration tests rather than mocks:
 tests spin up a real `runnerhub.Hub`, real `runner.Client`s, and real
 WebSocket connections, standing in only for the coding CLI itself (a small
 fixture script satisfies the same `tools.CLIInvocation` contract a real
-`claude`/`codex`/`gemini` binary would, since this environment has none of
+`claude`/`codex`/`agy` binary would, since this environment has none of
 those installed).
 
 ## Status
@@ -177,13 +177,20 @@ cross-machine handoff, server-restart recovery). Phase 8 hardening
 endpoint/`/api/slack/command`, runner token revocation) is in place too.
 
 Known gaps, called out honestly rather than glossed over:
-- **Codex CLI and Gemini CLI invocation flags are best-effort, not
-  verified** — this environment has neither binary installed to check
-  against. `ClaudeCodeInvocation` in `internal/tools/cli_invoke.go` is
-  accurate to the real Claude Code CLI; confirm `CodexInvocation` and
-  `GeminiInvocation` against each tool's actual `--help` before relying on
-  them.
+- **Codex CLI invocation flags are best-effort, not verified** — this
+  environment has no `codex` binary installed to check against.
+  `ClaudeCodeInvocation` in `internal/tools/cli_invoke.go` is accurate to
+  the real Claude Code CLI; `AntigravityInvocation`'s flags are verified
+  against Google's published `agy` docs, but confirm `CodexInvocation`
+  against Codex's actual `--help` before relying on it.
+- **Antigravity CLI (`agy`) has no working API-key auth for headless
+  use** — per a maintainer on `google-antigravity/antigravity-cli#78`,
+  that's not currently supported upstream; `agy` expects cached
+  credentials from a prior interactive login on the runner machine
+  instead. `EnvVarForTool["antigravity"]` still maps `ANTIGRAVITY_API_KEY`
+  for parity with the other tools and in case upstream adds support, but
+  it has no effect today.
 - No Grok/xAI preset — there's no published xAI agentic coding CLI to
-  delegate to the way Claude Code/Codex CLI/Gemini CLI work.
+  delegate to the way Claude Code/Codex CLI/Antigravity CLI work.
 - Discord and ServiceNow gateways (Phase 9) aren't built — `PLAN.md` marks
   them optional, "only build if actually needed."

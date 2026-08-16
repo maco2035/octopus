@@ -5,7 +5,7 @@
 // committed in the real checkout, a real security note, and a real merge
 // on approval — all on one machine, against a real local git remote. The
 // one substitution is the coding CLI itself: this environment has no
-// claude/codex/gemini binary or API key, so a small fixture script stands
+// claude/codex/antigravity binary or API key, so a small fixture script stands
 // in for "claude" behind the exact same tools.CLIInvocation contract the
 // real binary would satisfy.
 package integration_test

@@ -390,7 +390,7 @@ func (m *Manager) CheckTools() []ToolInfo {
 	}{
 		{"Git", "git", "--version"},
 		{"Claude Code CLI", "claude", "--version"},
-		{"Gemini CLI", "gemini", "--version"},
+		{"Antigravity CLI", "agy", "--version"},
 		{"Codex CLI", "codex", "--version"},
 	}
 

@@ -1,6 +1,6 @@
 # CLAUDE.md — Octopus Project Guide
 
-Octopus is a multi-agent AI pipeline orchestrator (drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals). It orchestrates coding agent CLIs (Claude Code, Gemini CLI, Codex) across tickets and projects, dispatching execution to remote dev machines.
+Octopus is a multi-agent AI pipeline orchestrator (drag-and-drop pipelines, multi-project, multi-machine runners, Slack approvals). It orchestrates coding agent CLIs (Claude Code, Antigravity CLI, Codex) across tickets and projects, dispatching execution to remote dev machines.
 
 ---
 
@@ -44,7 +44,7 @@ go run ./cmd/octopus
 ## 🏃 Runner Deployment Modes
 
 ### 1. Standalone Binary / One-Command Runner (Primary / Recommended)
-Runs directly on the host with native access to dev tools, SSH keys, language compilers, and installed CLI agents (`claude`, `gemini`, `codex`).
+Runs directly on the host with native access to dev tools, SSH keys, language compilers, and installed CLI agents (`claude`, `agy`, `codex`).
 
 **Fastest way to start:**
 ```bash
@@ -58,7 +58,7 @@ go run main.go
 **Local Web Dashboard (`http://localhost:8088`):**
 When started, `octopus-runner` automatically serves a local web dashboard at `http://localhost:8088`. Open it in your browser to:
 - 🌐 Configure or change the **Server WebSocket URL** and **Runner Token** directly from the UI.
-- 🛠️ Inspect local **Toolchain Health** (detects installed versions of `git`, `claude`, `gemini`, `codex`).
+- 🛠️ Inspect local **Toolchain Health** (detects installed versions of `git`, `claude`, `agy`, `codex`).
 - ⚡ Monitor **Active Executions** and view recent **Job History** with output logs.
 - 💾 Settings automatically save to `runner.yaml` and trigger immediate reconnects.
 

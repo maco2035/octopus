@@ -29,10 +29,10 @@ type RunnerConfig struct {
 }
 
 type AgentsConfig struct {
-	GeminiAPIKey    string `yaml:"gemini_api_key"`
-	AnthropicAPIKey string `yaml:"anthropic_api_key"`
-	OpenAIAPIKey    string `yaml:"openai_api_key"`
-	XAIAPIKey       string `yaml:"xai_api_key"` // Grok
+	AntigravityAPIKey string `yaml:"antigravity_api_key"`
+	AnthropicAPIKey   string `yaml:"anthropic_api_key"`
+	OpenAIAPIKey      string `yaml:"openai_api_key"`
+	XAIAPIKey         string `yaml:"xai_api_key"` // Grok
 }
 
 // AuthConfig holds the single v1 admin account (PLAN.md Key Design Decision

@@ -1,5 +1,5 @@
 // Package cliagent implements one generic domain.Agent that delegates its
-// real work to a coding CLI (Claude Code, Codex CLI, Gemini CLI) running on
+// real work to a coding CLI (Claude Code, Codex CLI, Antigravity CLI) running on
 // a runner, instead of Octopus reimplementing a read/edit/test/iterate
 // loop centrally (PLAN.md Key Design Decision 25). Every named preset in
 // agents/presets.go is this same Agent, just constructed with a different
@@ -20,7 +20,7 @@ import (
 
 type Agent struct {
 	NodeID     string
-	Tool       string // "claude" | "codex" | "gemini" — which CLI this node delegates to
+	Tool       string // "claude" | "codex" | "antigravity" — which CLI this node delegates to
 	RolePrompt string // fixed per preset: what this node's role is (coder/reviewer/reporter/security)
 	APIKey     string // this tool's provider key; rides in the job payload for one invocation only (Key Design Decision 28)
 	Dispatcher domain.JobDispatcher
