@@ -8,16 +8,19 @@ import "sync"
 // bare map — agents must go through SetOutput/GetOutput, never touch
 // NodeOutputs directly.
 type PipelineState struct {
-	RunID         string
-	ProjectID     string
-	PipelineDefID string
-	TicketID      string
-	GitBranch     string
-	SessionID     string // coding-agent session to resume; seeded from a prior run when this one is an explicit continuation (Key Design Decision 27)
-	Status        Status
-	PendingNodeID string
-	ActionToken   string
-	Summary       string
+	RunID            string
+	ProjectID        string
+	PipelineDefID    string
+	WorkItemID       string
+	TicketID         string
+	GitBranch        string
+	AssignedRunnerID string
+	ReviewLoops      int
+	SessionID        string // coding-agent session to resume; seeded from a prior run when this one is an explicit continuation (Key Design Decision 27)
+	Status           Status
+	PendingNodeID    string
+	ActionToken      string
+	Summary          string
 
 	mu          sync.Mutex
 	NodeOutputs map[string]any

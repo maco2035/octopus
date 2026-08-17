@@ -28,6 +28,10 @@ type Store interface {
 	LoadPipelineDef(ctx context.Context, id string) (*domain.PipelineDef, error)
 	ListPipelineDefs(ctx context.Context, projectID string) ([]*domain.PipelineDef, error)
 
+	SaveWorkItem(ctx context.Context, item *domain.WorkItem) error
+	LoadWorkItem(ctx context.Context, id string) (*domain.WorkItem, error)
+	ListWorkItems(ctx context.Context, projectID string) ([]*domain.WorkItem, error)
+
 	Save(ctx context.Context, state *domain.PipelineState) error
 	Load(ctx context.Context, runID string) (*domain.PipelineState, error)
 	ListActiveRuns(ctx context.Context) ([]*domain.PipelineState, error) // across all projects, for the scheduler + UI
@@ -50,6 +54,8 @@ type Store interface {
 
 	LoadUserByUsername(ctx context.Context, username string) (*domain.User, error)
 	LoadUserByID(ctx context.Context, id string) (*domain.User, error) // used to resolve Session.UserID back to a User
+	SaveUser(ctx context.Context, u *domain.User) error
+	ListUsers(ctx context.Context) ([]*domain.User, error)
 
 	SaveSession(ctx context.Context, s *domain.Session) error
 	LoadSession(ctx context.Context, token string) (*domain.Session, error) // caller checks ExpiresAt; an expired-but-present row is not treated as ErrNotFound here
