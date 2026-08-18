@@ -107,8 +107,11 @@ CREATE TABLE IF NOT EXISTS pipeline_states (
 	run_id TEXT PRIMARY KEY,
 	project_id TEXT NOT NULL,
 	pipeline_def_id TEXT NOT NULL,
+	work_item_id TEXT NOT NULL DEFAULT '',
 	ticket_id TEXT NOT NULL DEFAULT '',
 	git_branch TEXT NOT NULL DEFAULT '',
+	assigned_runner_id TEXT NOT NULL DEFAULT '',
+	review_loops INTEGER NOT NULL DEFAULT 0,
 	session_id TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL,
 	pending_node_id TEXT NOT NULL DEFAULT '',
@@ -148,7 +151,23 @@ CREATE TABLE IF NOT EXISTS git_jobs (
 CREATE TABLE IF NOT EXISTS users (
 	id TEXT PRIMARY KEY,
 	username TEXT NOT NULL UNIQUE,
-	password_hash TEXT NOT NULL
+	password_hash TEXT NOT NULL,
+	role TEXT NOT NULL DEFAULT 'member'
+);
+
+CREATE TABLE IF NOT EXISTS work_items (
+	id TEXT PRIMARY KEY,
+	project_id TEXT NOT NULL,
+	ticket_id TEXT NOT NULL,
+	title TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	kind TEXT NOT NULL DEFAULT 'change',
+	pipeline_def_id TEXT NOT NULL,
+	assigned_runner_id TEXT NOT NULL DEFAULT '',
+	branch TEXT NOT NULL DEFAULT '',
+	queue_position INTEGER NOT NULL DEFAULT 0,
+	run_id TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMP NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -166,9 +185,13 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	// are included in the CREATE TABLEs above for brand-new DBs already).
 	for _, stmt := range []string{
 		`ALTER TABLE pipeline_states ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE pipeline_states ADD COLUMN work_item_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE pipeline_states ADD COLUMN assigned_runner_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE pipeline_states ADD COLUMN review_loops INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE projects ADD COLUMN default_pipeline_def_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE git_jobs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE git_jobs ADD COLUMN result_session_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column name") {
@@ -181,8 +204,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 
 func (s *SQLiteStore) seedAdmin(ctx context.Context, username, passwordHash string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO users (id, username, password_hash) VALUES ('admin', ?, ?)
-		ON CONFLICT(id) DO UPDATE SET username = excluded.username, password_hash = excluded.password_hash
+		INSERT INTO users (id, username, password_hash, role) VALUES ('admin', ?, ?, 'admin')
+		ON CONFLICT(id) DO UPDATE SET username = excluded.username, password_hash = excluded.password_hash, role = 'admin'
 	`, username, passwordHash)
 	return err
 }
@@ -348,6 +371,7 @@ func (s *SQLiteStore) Load(ctx context.Context, runID string) (*domain.PipelineS
 
 var terminalStatuses = []domain.Status{
 	domain.StatusCompleted, domain.StatusFailed, domain.StatusRejected, domain.StatusCancelled,
+	domain.StatusNeedsHuman,
 }
 
 func (s *SQLiteStore) ListActiveRuns(ctx context.Context) ([]*domain.PipelineState, error) {
@@ -620,11 +644,43 @@ func (s *SQLiteStore) LoadGitJobResult(ctx context.Context, jobID string) (*doma
 	}, nil
 }
 
+// ---- Work items ----
+func (s *SQLiteStore) SaveWorkItem(ctx context.Context, item *domain.WorkItem) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO work_items (id, project_id, ticket_id, title, description, kind, pipeline_def_id, assigned_runner_id, branch, queue_position, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, description=excluded.description, kind=excluded.kind, pipeline_def_id=excluded.pipeline_def_id, assigned_runner_id=excluded.assigned_runner_id, branch=excluded.branch, queue_position=excluded.queue_position, run_id=excluded.run_id`, item.ID, item.ProjectID, item.TicketID, item.Title, item.Description, item.Kind, item.PipelineDefID, item.AssignedRunnerID, item.Branch, item.QueuePosition, item.RunID, item.CreatedAt)
+	return err
+}
+
+func (s *SQLiteStore) LoadWorkItem(ctx context.Context, id string) (*domain.WorkItem, error) {
+	item := &domain.WorkItem{ID: id}
+	err := s.db.QueryRowContext(ctx, `SELECT project_id, ticket_id, title, description, kind, pipeline_def_id, assigned_runner_id, branch, queue_position, run_id, created_at FROM work_items WHERE id = ?`, id).Scan(&item.ProjectID, &item.TicketID, &item.Title, &item.Description, &item.Kind, &item.PipelineDefID, &item.AssignedRunnerID, &item.Branch, &item.QueuePosition, &item.RunID, &item.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return item, err
+}
+
+func (s *SQLiteStore) ListWorkItems(ctx context.Context, projectID string) ([]*domain.WorkItem, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, ticket_id, title, description, kind, pipeline_def_id, assigned_runner_id, branch, queue_position, run_id, created_at FROM work_items WHERE project_id = ? ORDER BY queue_position, created_at`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.WorkItem
+	for rows.Next() {
+		item := &domain.WorkItem{}
+		if err := rows.Scan(&item.ID, &item.ProjectID, &item.TicketID, &item.Title, &item.Description, &item.Kind, &item.PipelineDefID, &item.AssignedRunnerID, &item.Branch, &item.QueuePosition, &item.RunID, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 // ---- Users & sessions ----
 
 func (s *SQLiteStore) LoadUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	u := &domain.User{Username: username}
-	err := s.db.QueryRowContext(ctx, `SELECT id, password_hash FROM users WHERE username = ?`, username).Scan(&u.ID, &u.PasswordHash)
+	err := s.db.QueryRowContext(ctx, `SELECT id, password_hash, role FROM users WHERE username = ?`, username).Scan(&u.ID, &u.PasswordHash, &u.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -636,7 +692,7 @@ func (s *SQLiteStore) LoadUserByUsername(ctx context.Context, username string) (
 
 func (s *SQLiteStore) LoadUserByID(ctx context.Context, id string) (*domain.User, error) {
 	u := &domain.User{ID: id}
-	err := s.db.QueryRowContext(ctx, `SELECT username, password_hash FROM users WHERE id = ?`, id).Scan(&u.Username, &u.PasswordHash)
+	err := s.db.QueryRowContext(ctx, `SELECT username, password_hash, role FROM users WHERE id = ?`, id).Scan(&u.Username, &u.PasswordHash, &u.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -644,6 +700,28 @@ func (s *SQLiteStore) LoadUserByID(ctx context.Context, id string) (*domain.User
 		return nil, err
 	}
 	return u, nil
+}
+
+func (s *SQLiteStore) SaveUser(ctx context.Context, u *domain.User) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET username=excluded.username, password_hash=excluded.password_hash, role=excluded.role`, u.ID, u.Username, u.PasswordHash, u.Role)
+	return err
+}
+
+func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*domain.User, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, password_hash, role FROM users ORDER BY username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.User
+	for rows.Next() {
+		u := &domain.User{}
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
 
 func (s *SQLiteStore) SaveSession(ctx context.Context, sess *domain.Session) error {

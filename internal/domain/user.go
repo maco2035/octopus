@@ -10,7 +10,16 @@ type User struct {
 	ID           string
 	Username     string
 	PasswordHash string // bcrypt
+	Role         Role
 }
+
+// Role controls access to administration and destructive orchestration.
+type Role string
+
+const (
+	RoleAdmin  Role = "admin"
+	RoleMember Role = "member"
+)
 
 // Session backs the web UI's login. A server-side row (not just a signed
 // cookie) so logout/revocation is real, not "wait for expiry."
