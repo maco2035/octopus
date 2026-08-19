@@ -72,7 +72,9 @@ func (q *LocalQueue) Close() error { return q.db.Close() }
 // SaveReceived records a job before execution starts, so a crash mid-job
 // leaves a trace of what this runner was working on.
 func (q *LocalQueue) SaveReceived(job *domain.GitJob) error {
-	b, err := json.Marshal(job)
+	// The live job may contain a provider credential used by the subprocess.
+	// The durable recovery record must never contain that credential.
+	b, err := json.Marshal(job.Redacted())
 	if err != nil {
 		return err
 	}
