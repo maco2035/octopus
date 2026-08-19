@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -66,28 +67,78 @@ type GitJob struct {
 	Payload   map[string]any // for run_agent: {"tool": "claude"|"codex"|"antigravity", "prompt": "...", "session_id": "...", "api_key": "..."}
 }
 
-// Redacted returns a copy of j with Payload["api_key"] removed — safe to
-// persist (Store.SaveGitJob) or log. The real job (with the real key)
-// still goes to Dispatch/over the wire to a runner exactly once, for that
-// one subprocess invocation, per Key Design Decision 28 ("used only as an
-// ephemeral environment variable ... never written to the runner's disk
-// or config"); that promise only holds if the *server* doesn't write it
-// to its own disk either; SaveGitJob persisting Payload verbatim to
-// SQLite would do exactly that — the whole payload, api_key included,
-// sitting in git_jobs.payload_json indefinitely, including after the job
-// resolves. Every SaveGitJob call site must use this, not the raw job.
+// Redacted returns a deep-copied job whose credential-shaped payload fields
+// have been blanked. It is the only form safe to persist or expose through
+// diagnostics. The original job remains untouched so its ephemeral secrets
+// can still reach the one subprocess invocation that needs them.
+//
+// Payloads are intentionally open-ended, so redaction is recursive and
+// recognizes common token/password/secret names in addition to api_key.
+// Every durable or user-visible job boundary must use this method.
 func (j *GitJob) Redacted() *GitJob {
-	if _, ok := j.Payload["api_key"]; !ok {
-		return j
-	}
-	redactedPayload := make(map[string]any, len(j.Payload))
-	for k, v := range j.Payload {
-		redactedPayload[k] = v
-	}
-	redactedPayload["api_key"] = ""
 	cp := *j
-	cp.Payload = redactedPayload
+	cp.Payload = redactPayloadMap(j.Payload)
 	return &cp
+}
+
+func redactPayloadMap(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	redacted := make(map[string]any, len(payload))
+	for key, value := range payload {
+		if sensitivePayloadKey(key) {
+			redacted[key] = ""
+			continue
+		}
+		redacted[key] = redactPayloadValue(value)
+	}
+	return redacted
+}
+
+func redactPayloadValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return redactPayloadMap(typed)
+	case map[string]string:
+		redacted := make(map[string]string, len(typed))
+		for key, nested := range typed {
+			if sensitivePayloadKey(key) {
+				redacted[key] = ""
+			} else {
+				redacted[key] = nested
+			}
+		}
+		return redacted
+	case []any:
+		redacted := make([]any, len(typed))
+		for i, nested := range typed {
+			redacted[i] = redactPayloadValue(nested)
+		}
+		return redacted
+	default:
+		return value
+	}
+}
+
+func sensitivePayloadKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+	switch normalized {
+	case "api_key", "access_token", "auth_token", "refresh_token", "runner_token",
+		"authorization", "cookie", "password", "passphrase", "private_key",
+		"ssh_key", "token", "secret", "signing_secret", "client_secret":
+		return true
+	}
+	for _, suffix := range []string{
+		"_api_key", "_access_token", "_auth_token", "_refresh_token",
+		"_runner_token", "_password", "_passphrase", "_private_key",
+		"_signing_secret", "_client_secret",
+	} {
+		if strings.HasSuffix(normalized, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // GitJobResult carries a runner's full output back, not just success/fail

@@ -320,7 +320,9 @@ func (m *Manager) onJobStart(job *domain.GitJob) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	payloadBytes, _ := json.Marshal(job.Payload)
+	// The local dashboard is a user-visible diagnostic boundary. Keep its
+	// copy useful for debugging without retaining ephemeral credentials.
+	payloadBytes, _ := json.Marshal(job.Redacted().Payload)
 	record := &JobRecord{
 		ID:        job.ID,
 		ProjectID: job.ProjectID,

@@ -40,3 +40,41 @@ func TestGitJob_Redacted_NoAPIKeyIsNoop(t *testing.T) {
 		t.Fatalf("expected payload preserved when there's no api_key, got %+v", redacted.Payload)
 	}
 }
+
+func TestGitJob_Redacted_RecursivelyStripsCredentialFields(t *testing.T) {
+	job := &domain.GitJob{Payload: map[string]any{
+		"api_key": "top-level-key",
+		"environment": map[string]any{
+			"OPENAI_API_KEY": "nested-key",
+			"safe":           "kept",
+		},
+		"credentials": []any{
+			map[string]any{"access_token": "nested-token", "region": "us-west-2"},
+		},
+		"settings": map[string]string{
+			"client_secret": "nested-secret",
+			"mode":          "fast",
+		},
+	}}
+
+	redacted := job.Redacted()
+	environment := redacted.Payload["environment"].(map[string]any)
+	credentials := redacted.Payload["credentials"].([]any)[0].(map[string]any)
+	settings := redacted.Payload["settings"].(map[string]string)
+
+	if redacted.Payload["api_key"] != "" || environment["OPENAI_API_KEY"] != "" ||
+		credentials["access_token"] != "" || settings["client_secret"] != "" {
+		t.Fatalf("expected all credential fields blanked, got %+v", redacted.Payload)
+	}
+	if environment["safe"] != "kept" || credentials["region"] != "us-west-2" || settings["mode"] != "fast" {
+		t.Fatalf("expected non-secret nested fields preserved, got %+v", redacted.Payload)
+	}
+
+	// Deep-copying is part of the contract: neither maps nor slices in the
+	// original live job may be changed by a durable/UI redaction pass.
+	if job.Payload["api_key"] != "top-level-key" ||
+		job.Payload["environment"].(map[string]any)["OPENAI_API_KEY"] != "nested-key" ||
+		job.Payload["credentials"].([]any)[0].(map[string]any)["access_token"] != "nested-token" {
+		t.Fatal("Redacted mutated the original nested payload")
+	}
+}
