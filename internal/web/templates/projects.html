@@ -5,17 +5,24 @@
 <body>
 {{template "nav" .}}
 <main>
-  <h1>Projects</h1>
-  <ul class="project-list">
+  <div class="page-heading">
+    <div><p class="eyebrow">Workspace</p><h1>Projects</h1><p class="lede">Coordinate agent pipelines across your repositories.</p></div>
+    <a class="button button-primary" href="#new-project">+ New project</a>
+  </div>
+  <div class="project-grid">
     {{range .Projects}}
-    <li><a href="/projects/{{.ID}}">{{.Name}}</a> <span class="muted">{{.GitRemoteURL}} @ {{.BaseBranch}}</span></li>
+    <a class="project-card" href="/projects/{{.ID}}">
+      <span class="project-icon">{{slice .Name 0 1}}</span>
+      <span class="project-card-body"><strong>{{.Name}}</strong><span class="muted">{{.GitRemoteURL}}</span><span class="project-meta"><span class="branch-dot"></span>{{.BaseBranch}}</span></span>
+      <span class="card-arrow">→</span>
+    </a>
     {{else}}
-    <li class="muted">No projects yet — add one below.</li>
+    <div class="empty-state"><span class="empty-icon">◌</span><strong>No projects yet</strong><span class="muted">Add your first repository to get started.</span></div>
     {{end}}
-  </ul>
+  </div>
 
-  <form method="post" action="/projects" class="card">
-    <h2>New project</h2>
+  <form method="post" action="/projects" class="card form-card" id="new-project">
+    <div class="section-heading"><div><p class="eyebrow">Get started</p><h2>New project</h2></div><span class="form-number">01</span></div>
     <label>ID (slug)<input type="text" name="id" required pattern="[a-z0-9\-]+"></label>
     <label>Name<input type="text" name="name" required></label>
     <label>Git remote URL<input type="text" name="git_remote_url" required></label>

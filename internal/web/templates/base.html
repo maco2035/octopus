@@ -1,9 +1,12 @@
 {{define "nav"}}
 <header class="nav">
-  <a class="brand" href="/">Octopus</a>
+  <a class="brand" href="/"><span class="brand-mark">O</span><span>Octopus</span></a>
   {{if .User}}
-    <a href="/runners">Runners</a>
-    <span class="nav-user">{{.User.Username}}</span>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="/">Projects</a>
+      <a href="/runners">Runners</a>
+    </nav>
+    <span class="nav-user"><span class="avatar">{{slice .User.Username 0 1}}</span>{{.User.Username}}</span>
     <form method="post" action="/logout" class="nav-logout"><button type="submit">Log out</button></form>
   {{end}}
 </header>

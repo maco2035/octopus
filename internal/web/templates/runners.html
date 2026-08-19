@@ -5,9 +5,9 @@
 <body>
 {{template "nav" .}}
 <main>
-  <p><a href="/">&larr; Projects</a></p>
-  <h1>Runners</h1>
-  <table class="runs-table">
+  <p class="breadcrumb"><a href="/">Projects</a><span>/</span>Runners</p>
+  <div class="page-heading"><div><p class="eyebrow">Infrastructure</p><h1>Runners</h1><p class="lede">Machines available to execute your pipelines.</p></div><a class="button button-primary" href="#new-runner">+ Add runner</a></div>
+  <div class="table-shell"><table class="runs-table">
     <thead><tr><th>Name</th><th>Status</th><th>Projects</th><th>Last seen</th><th></th></tr></thead>
     <tbody>
       {{range .Runners}}
@@ -26,10 +26,10 @@
       <tr><td colspan="5" class="muted">No runners registered yet.</td></tr>
       {{end}}
     </tbody>
-  </table>
+  </table></div>
 
-  <form method="post" action="/runners" class="card">
-    <h2>New runner</h2>
+  <form method="post" action="/runners" class="card form-card" id="new-runner">
+    <div class="section-heading"><div><p class="eyebrow">Connect a machine</p><h2>New runner</h2></div><span class="form-number">01</span></div>
     <label>Name<input type="text" name="name" required placeholder="aashay-laptop"></label>
     <label>Project IDs (comma-separated)<input type="text" name="project_ids" placeholder="proj1, proj2"></label>
     <button type="submit">Generate token</button>
